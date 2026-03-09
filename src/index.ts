@@ -5,8 +5,6 @@ import { verifyDeposited } from './handlers/deposited';
 
 const app = express();
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use((req, _res, next) => { console.log('[raw body]', JSON.stringify(req.body)); next(); });
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ ok: true }));
