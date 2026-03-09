@@ -1,33 +1,60 @@
-import express from 'express';
-import { verifyChannel } from './handlers/channel';
-import { verifyRegistered } from './handlers/registered';
-import { verifyDeposited } from './handlers/deposited';
+import { Request, Response } from 'express';
+import axios from 'axios';
+import { resumeBot } from '../callback';
 
-const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use((req, _res, next) => { console.log('[raw body]', JSON.stringify(req.body)); next(); });
+export async function verifyChannel(req: Request, res: Response): Promise<void> {
+  const { return_url, data, token } = req.body;
+  const telegramUserId = data?.telegram_user_id;
 
-// ── Health check ─────────────────────────────────────────────────────────────
-app.get('/health', (_req, res) => res.json({ ok: true }));
+  console.log('[channel] received', { telegramUserId, return_url });
 
-// ── Verification endpoints ────────────────────────────────────────────────────
-// All three follow the same contract:
-//
-//   REQUEST  (from Kommo widget_request):
-//     POST /verify/channel    { token, return_url, data: { telegram_user_id, lead_id } }
-//     POST /verify/registered { token, return_url, data: { trader_id, lead_id } }
-//     POST /verify/deposited  { token, return_url, data: { trader_id, lead_id } }
-//
-//   RESPONSE (immediate, within 2 seconds):
-//     HTTP 200  — acknowledges receipt, Kommo holds the bot
-//
-//   CALLBACK  (async, to return_url):
-//     { data: { status: "joined" | "not_joined" | "verified" | "not_found" | "deposited" | "no_deposit" } }
-//
-app.post('/verify/channel',    verifyChannel);
-app.post('/verify/registered', verifyRegistered);
-app.post('/verify/deposited',  verifyDeposited);
+  res.status(200).json({ ok: true });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`kommo-verify running on port ${PORT}`));
+  setImmediate(async () => {
+    if (!return_url) {
+      console.error('[channel] missing return_url');
+      return;
+    }
+
+    if (!telegramUserId) {
+      await resumeBot(return_url, 'not_joined', token, 'Missing Telegram user ID');
+      return;
+    }
+
+    const botToken = process.env.BOT_TOKEN;
+    const channelId = process.env.CHANNEL_ID;
+
+    if (!botToken || !channelId) {
+      console.error('[channel] missing BOT_TOKEN or CHANNEL_ID env vars');
+      await resumeBot(return_url, 'not_joined', token, 'Server config error');
+      return;
+    }
+
+    try {
+      const response = await axios.get(
+        `https://api.telegram.org/bot${botToken}/getChatMember`,
+        {
+          params: { chat_id: channelId, user_id: telegramUserId },
+          timeout: 10_000,
+        }
+      );
+
+      const status = response.data?.result?.status;
+      console.log('[channel] getChatMember status:', status, 'for user:', telegramUserId);
+
+      const isJoined = ['member', 'administrator', 'creator'].includes(status);
+
+      await resumeBot(
+        return_url,
+        isJoined ? 'joined' : 'not_joined',
+        token,
+        isJoined ? 'Channel membership confirmed' : 'User has not joined the channel'
+      );
+
+    } catch (err: any) {
+      const tgError = err?.response?.data?.description ?? '';
+      console.error('[channel] Telegram API error:', tgError);
+      await resumeBot(return_url, 'not_joined', token, tgError || 'Telegram API error');
+    }
+  });
+}
