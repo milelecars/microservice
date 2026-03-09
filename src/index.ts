@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
-import { resumeBot } from '../callback';
+import { resumeBot } from './callback';
 
 export async function verifyChannel(req: Request, res: Response): Promise<void> {
   const { return_url, data, token } = req.body;
