@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import axios from 'axios';
 
 const KOMMO_BASE = 'https://fahadriazex1.kommo.com/api/v4';
+const KOMMO_TOKEN = process.env.KOMMO_TOKEN!;
+const TG_FIELD_ID = 1067290;
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   res.status(200).json({ ok: true });
@@ -11,61 +13,60 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       const body = req.body;
       console.log('[telegram] incoming update:', JSON.stringify(body));
 
-      // Get the real numeric Telegram user ID
-      const from = body?.message?.from ?? body?.callback_query?.from;
-      const telegramUserId = from?.id;
+      // Parse lead_id from Kommo webhook format
+      const leadId =
+        body?.leads?.add?.[0]?.id ??
+        body?.leads?.update?.[0]?.id ??
+        body?.lead_id;
 
-      if (!telegramUserId) {
-        console.warn('[telegram] no from.id in update, skipping');
+      if (!leadId) {
+        console.warn('[telegram] no lead_id found in body, skipping');
         return;
       }
 
-      console.log('[telegram] user ID:', telegramUserId);
+      console.log('[telegram] lead_id:', leadId);
 
-      // Find the Kommo contact linked to this Telegram user ID
-      // by searching talks for a chat linked to this user
-      const kommoToken = process.env.KOMMO_TOKEN!;
-
-      // Search leads with this telegram user ID already saved
-      // OR find via talks — get all talks and match by contact
-      // Best approach: search contacts by name or find the active talk
-      // We use getUpdates chat.id = telegramUserId to find the Kommo contact
-
-      // Find the lead via talks API — filter by origin telegram
-      // and match contact_id to the one that messaged us
+      // Fetch talks filtered by this lead
       const talksResp = await axios.get(
-        `${KOMMO_BASE}/talks?limit=50`,
-        { headers: { Authorization: `Bearer ${kommoToken}` }, timeout: 10_000 }
+        `${KOMMO_BASE}/talks?entity_id=${leadId}&entity_type=lead&limit=10`,
+        { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
       );
 
       const talks = talksResp.data?._embedded?.talks ?? [];
+      console.log('[telegram] talks found:', talks.length, JSON.stringify(talks));
 
-      // Find the most recent active telegram talk
-      const activeTalk = talks
-        .filter((t: any) => t.origin === 'telegram' && t.entity_id && t.entity_type === 'lead')
+      const tgTalk = talks
+        .filter((t: any) => t.origin === 'telegram')
         .sort((a: any, b: any) => b.created_at - a.created_at)[0];
 
-      if (!activeTalk) {
-        console.warn('[telegram] no active telegram talk found');
+      if (!tgTalk) {
+        console.warn('[telegram] no telegram talk found for lead', leadId);
         return;
       }
 
-      const leadId = activeTalk.entity_id;
-      const contactId = activeTalk.contact_id;
+      const telegramUserId =
+        tgTalk?.chat?.origin_id ??
+        tgTalk?.origin_id ??
+        tgTalk?.chat_id;
 
-      console.log('[telegram] matched lead:', leadId, 'contact:', contactId);
+      if (!telegramUserId) {
+        console.warn('[telegram] no TG user ID in talk:', JSON.stringify(tgTalk));
+        return;
+      }
 
-      // Save real Telegram user ID to lead field 1067290
-      const patchResp = await axios.patch(`${KOMMO_BASE}/leads/${leadId}`, {
-        custom_fields_values: [
-          { field_id: 1067290, values: [{ value: telegramUserId }] }
-        ]
-      }, {
-        headers: { Authorization: `Bearer ${kommoToken}` },
-        timeout: 10_000,
-      });
+      console.log('[telegram] saving TG user ID:', telegramUserId, '→ lead:', leadId);
 
-      console.log('[telegram] saved user ID', telegramUserId, 'to lead', leadId, 'status:', patchResp.status);
+      const patchResp = await axios.patch(
+        `${KOMMO_BASE}/leads/${leadId}`,
+        {
+          custom_fields_values: [
+            { field_id: TG_FIELD_ID, values: [{ value: Number(telegramUserId) }] }
+          ]
+        },
+        { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
+      );
+
+      console.log('[telegram] done — status:', patchResp.status);
 
     } catch (err: any) {
       console.error('[telegram] error:', err?.response?.data ?? err.message);
