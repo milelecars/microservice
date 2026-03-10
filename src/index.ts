@@ -1,60 +1,31 @@
-import { Request, Response } from 'express';
-import axios from 'axios';
-import { resumeBot } from './callback';
+import express, { Request, Response } from 'express';
+import { verifyChannel } from './handlers/channel';
+import { verifyRegistered } from './handlers/registered';
+import { verifyDeposited } from './handlers/deposited';
 
-export async function verifyChannel(req: Request, res: Response): Promise<void> {
-  const { return_url, data, token } = req.body;
-  const telegramUserId = data?.telegram_user_id;
+const app = express();
 
-  console.log('[channel] received', { telegramUserId, return_url });
+app.disable('x-powered-by');
+app.use(express.json({ limit: '1mb' }));
 
-  res.status(200).json({ ok: true });
+app.get('/health', (_req: Request, res: Response) => {
+  res.status(200).send('ok');
+});
 
-  setImmediate(async () => {
-    if (!return_url) {
-      console.error('[channel] missing return_url');
-      return;
-    }
+app.post('/channel', verifyChannel);
+app.post('/registered', verifyRegistered);
+app.post('/deposited', verifyDeposited);
 
-    if (!telegramUserId) {
-      await resumeBot(return_url, 'not_joined', token, 'Missing Telegram user ID');
-      return;
-    }
-
-    const botToken = process.env.BOT_TOKEN;
-    const channelId = process.env.CHANNEL_ID;
-
-    if (!botToken || !channelId) {
-      console.error('[channel] missing BOT_TOKEN or CHANNEL_ID env vars');
-      await resumeBot(return_url, 'not_joined', token, 'Server config error');
-      return;
-    }
-
-    try {
-      const response = await axios.get(
-        `https://api.telegram.org/bot${botToken}/getChatMember`,
-        {
-          params: { chat_id: channelId, user_id: telegramUserId },
-          timeout: 10_000,
-        }
-      );
-
-      const status = response.data?.result?.status;
-      console.log('[channel] getChatMember status:', status, 'for user:', telegramUserId);
-
-      const isJoined = ['member', 'administrator', 'creator'].includes(status);
-
-      await resumeBot(
-        return_url,
-        isJoined ? 'joined' : 'not_joined',
-        token,
-        isJoined ? 'Channel membership confirmed' : 'User has not joined the channel'
-      );
-
-    } catch (err: any) {
-      const tgError = err?.response?.data?.description ?? '';
-      console.error('[channel] Telegram API error:', tgError);
-      await resumeBot(return_url, 'not_joined', token, tgError || 'Telegram API error');
-    }
+app.get('/', (_req: Request, res: Response) => {
+  res.status(200).json({
+    service: 'kommo-verify',
+    routes: ['/health', '/channel', '/registered', '/deposited'],
   });
-}
+});
+
+const port = Number(process.env.PORT ?? 3000);
+const host = process.env.HOST ?? '0.0.0.0';
+
+app.listen(port, host, () => {
+  console.log(`[server] listening on http://${host}:${port}`);
+});
