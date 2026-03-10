@@ -29,7 +29,7 @@ async function handleNewMessage(req, res) {
                 const kommoToken = process.env.KOMMO_TOKEN;
                 await axios_1.default.patch(`${KOMMO_BASE}/contacts/${contactId}`, {
                     custom_fields_values: [
-                        { field_id: 1067290, values: [{ value: String(telegramUserId) }] }
+                        { field_id: 1067290, values: [{ value: Number(telegramUserId) }] }
                     ]
                 }, {
                     headers: { Authorization: `Bearer ${kommoToken}` },
