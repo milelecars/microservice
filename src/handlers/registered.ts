@@ -4,13 +4,32 @@ import { resumeBot } from '../callback';
 
 export async function verifyRegistered(req: Request, res: Response): Promise<void> {
 
-  const rawData = req.body.data;
-  const data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
-  const traderId = data?.trader_id;
   const { return_url } = req.body;
+  const rawData = req.body?.data;
+
+  let data: any = rawData;
+  if (typeof rawData === 'string') {
+    try {
+      data = JSON.parse(rawData);
+    } catch (e: any) {
+      console.error('[registered] failed to parse body.data JSON', {
+        error: e?.message,
+        rawDataPreview: rawData.slice(0, 300),
+      });
+      data = undefined;
+    }
+  }
+
+  const traderId = data?.trader_id;
   const leadId = data?.lead_id;
 
-  console.log('[registered] received', { traderId, return_url });
+  console.log('[registered] received', {
+    returnUrlPresent: !!return_url,
+    rawDataType: rawData === null ? 'null' : Array.isArray(rawData) ? 'array' : typeof rawData,
+    leadId,
+    traderId,
+    bodyKeys: Object.keys(req.body ?? {}).slice(0, 30),
+  });
   res.status(200).json({ ok: true });
 
   setImmediate(async () => {

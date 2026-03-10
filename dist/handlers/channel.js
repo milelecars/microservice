@@ -16,10 +16,27 @@ async function kommo(path, token) {
 }
 async function verifyChannel(req, res) {
     const { return_url } = req.body;
-    const rawData = req.body.data;
-    const data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+    const rawData = req.body?.data;
+    let data = rawData;
+    if (typeof rawData === 'string') {
+        try {
+            data = JSON.parse(rawData);
+        }
+        catch (e) {
+            console.error('[channel] failed to parse body.data JSON', {
+                error: e?.message,
+                rawDataPreview: rawData.slice(0, 300),
+            });
+            data = undefined;
+        }
+    }
     const leadId = data?.lead_id;
-    console.log('[channel] received', { leadId, return_url });
+    console.log('[channel] received', {
+        returnUrlPresent: !!return_url,
+        rawDataType: rawData === null ? 'null' : Array.isArray(rawData) ? 'array' : typeof rawData,
+        leadId,
+        bodyKeys: Object.keys(req.body ?? {}).slice(0, 30),
+    });
     res.status(200).json({ ok: true });
     setImmediate(async () => {
         const kommoToken = process.env.KOMMO_TOKEN;
@@ -31,6 +48,15 @@ async function verifyChannel(req, res) {
             return;
         }
         try {
+            if (!return_url) {
+                console.error('[channel] missing return_url');
+                return;
+            }
+            if (!leadId) {
+                console.error('[channel] missing lead_id in data');
+                await (0, callback_1.resumeBot)(return_url, 'error', kommoToken, 'Missing lead_id');
+                return;
+            }
             // ── Step 1: check if Telegram User ID already stored ──────────────────
             let telegramUserId;
             let contactId;
