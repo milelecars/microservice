@@ -116,4 +116,3 @@ export async function verifyChannel(req: Request, res: Response): Promise<void> 
     }
   });
 }
-// ── Step finish
