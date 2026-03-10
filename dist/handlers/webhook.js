@@ -16,26 +16,25 @@ async function handleNewMessage(req, res) {
             for (const msg of messages) {
                 if (msg.type !== 'incoming')
                     continue;
-                const telegramUserId = msg.author_id;
-                const contactId = msg.contact_id;
-                console.log('[webhook] message event:', { telegramUserId, contactId });
-                if (!telegramUserId || !contactId)
+                const authorId = msg.author?.id ?? msg.author_id;
+                const leadId = msg.entity_id ?? msg.element_id;
+                console.log('[webhook] message event:', { authorId, leadId });
+                // author_id here is an amojo UUID, not a real Telegram ID.
+                // Real ID comes from /webhook/telegram instead.
+                // This is just a fallback — skip if no leadId.
+                if (!authorId || !leadId)
                     continue;
                 const kommoToken = process.env.KOMMO_TOKEN;
-                const numericId = Number(telegramUserId);
-                const valueToSend = Number.isFinite(numericId) ? numericId : telegramUserId;
-                console.log('[webhook] patching contact', contactId, 'with value:', valueToSend, typeof valueToSend);
                 try {
-                    const patchResp = await axios_1.default.patch(`${KOMMO_BASE}/contacts/${contactId}`, {
+                    const patchResp = await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, {
                         custom_fields_values: [
-                            { field_id: 1067290, values: [{ value: valueToSend }] }
+                            { field_id: 1067290, values: [{ value: authorId }] }
                         ]
                     }, {
                         headers: { Authorization: `Bearer ${kommoToken}` },
                         timeout: 10000,
                     });
-                    console.log('[webhook] patch response:', patchResp.status, JSON.stringify(patchResp.data?._embedded?.contacts?.[0]?.custom_fields_values?.find((f) => f.field_id === 1067290)));
-                    console.log('[webhook] saved Telegram user ID', telegramUserId, 'to contact', contactId);
+                    console.log('[webhook] patched lead', leadId, 'status:', patchResp.status);
                 }
                 catch (patchErr) {
                     console.error('[webhook] patch failed:', JSON.stringify(patchErr?.response?.data));

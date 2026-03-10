@@ -3,6 +3,8 @@ import { verifyChannel } from './handlers/channel';
 import { verifyRegistered } from './handlers/registered';
 import { verifyDeposited } from './handlers/deposited';
 import { handleNewMessage } from './handlers/webhook';
+import { handleTelegramWebhook } from './handlers/telegram';
+// ...
 
 const app = express();
 
@@ -54,6 +56,7 @@ app.post('/verify/registered', verifyRegistered);
 app.post('/verify/deposited', verifyDeposited);
 
 app.post('/webhook/message', handleNewMessage);
+app.post('/webhook/telegram', handleTelegramWebhook);
 
 app.get('/verify/channel', (_req: Request, res: Response) => {
   res.status(405).json({ ok: false, error: 'Method Not Allowed. Use POST /verify/channel' });

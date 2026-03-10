@@ -72,11 +72,11 @@ export async function verifyChannel(req: Request, res: Response): Promise<void> 
       console.log('[channel] contactId:', contactId);
 
       if (contactId) {
-        const contact = await kommo(`/contacts/${contactId}`, kommoToken);
-        const fields: any[] = contact?.custom_fields_values ?? [];
+        const lead = await kommo(`/leads/${leadId}`, kommoToken);
+        const fields: any[] = lead?.custom_fields_values ?? [];
         const tgField = fields.find((f: any) => f.field_id === 1067290);
         telegramUserId = tgField?.values?.[0]?.value?.toString();
-        console.log('[channel] stored telegramUserId:', telegramUserId);
+        console.log('[channel] stored telegramUserId from lead field:', telegramUserId);
       }
 
       // ── Step 2: if not stored, discover from chats ────────────────────────
