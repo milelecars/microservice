@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { verifyChannel } from './handlers/channel';
 import { verifyRegistered } from './handlers/registered';
 import { verifyDeposited } from './handlers/deposited';
+import { handleNewMessage } from './handlers/webhook';
 
 const app = express();
 
@@ -51,6 +52,8 @@ app.get('/health', (_req: Request, res: Response) => {
 app.post('/verify/channel', verifyChannel);
 app.post('/verify/registered', verifyRegistered);
 app.post('/verify/deposited', verifyDeposited);
+
+app.post('/webhook/message', handleNewMessage);
 
 app.get('/verify/channel', (_req: Request, res: Response) => {
   res.status(405).json({ ok: false, error: 'Method Not Allowed. Use POST /verify/channel' });

@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const channel_1 = require("./handlers/channel");
 const registered_1 = require("./handlers/registered");
 const deposited_1 = require("./handlers/deposited");
+const webhook_1 = require("./handlers/webhook");
 const app = (0, express_1.default)();
 app.disable('x-powered-by');
 app.use(express_1.default.json({ limit: '1mb' }));
@@ -45,6 +46,7 @@ app.get('/health', (_req, res) => {
 app.post('/verify/channel', channel_1.verifyChannel);
 app.post('/verify/registered', registered_1.verifyRegistered);
 app.post('/verify/deposited', deposited_1.verifyDeposited);
+app.post('/webhook/message', webhook_1.handleNewMessage);
 app.get('/verify/channel', (_req, res) => {
     res.status(405).json({ ok: false, error: 'Method Not Allowed. Use POST /verify/channel' });
 });
