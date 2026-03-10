@@ -3,8 +3,12 @@ import { getTraderByUid } from '../weex';
 import { resumeBot } from '../callback';
 
 export async function verifyRegistered(req: Request, res: Response): Promise<void> {
-  const { return_url, data } = req.body;
+
+  const rawData = req.body.data;
+  const data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
   const traderId = data?.trader_id;
+  const { return_url } = req.body;
+  const leadId = data?.lead_id;
 
   console.log('[registered] received', { traderId, return_url });
   res.status(200).json({ ok: true });

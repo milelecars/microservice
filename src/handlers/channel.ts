@@ -13,7 +13,9 @@ async function kommo(path: string, token: string) {
 }
 
 export async function verifyChannel(req: Request, res: Response): Promise<void> {
-  const { return_url, data } = req.body;
+  const { return_url } = req.body;
+  const rawData = req.body.data;
+  const data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
   const leadId = data?.lead_id;
 
   console.log('[channel] received', { leadId, return_url });

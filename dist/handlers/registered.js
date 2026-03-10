@@ -4,8 +4,11 @@ exports.verifyRegistered = verifyRegistered;
 const weex_1 = require("../weex");
 const callback_1 = require("../callback");
 async function verifyRegistered(req, res) {
-    const { return_url, data } = req.body;
+    const rawData = req.body.data;
+    const data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
     const traderId = data?.trader_id;
+    const { return_url } = req.body;
+    const leadId = data?.lead_id;
     console.log('[registered] received', { traderId, return_url });
     res.status(200).json({ ok: true });
     setImmediate(async () => {
