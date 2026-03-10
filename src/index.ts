@@ -7,14 +7,21 @@ const app = express();
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Log every incoming request
+app.use((req: Request, _res: Response, next) => {
+    console.log(`[request] ${req.method} ${req.path} body:`, JSON.stringify(req.body));
+    next();
+  });
 
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).send('ok');
 });
 
-app.post('/channel', verifyChannel);
-app.post('/registered', verifyRegistered);
-app.post('/deposited', verifyDeposited);
+app.post('/verify/channel', verifyChannel);
+app.post('/verify/registered', verifyRegistered);
+app.post('/verify/deposited', verifyDeposited);
 
 app.get('/', (_req: Request, res: Response) => {
   res.status(200).json({

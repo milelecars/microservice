@@ -10,12 +10,18 @@ const deposited_1 = require("./handlers/deposited");
 const app = (0, express_1.default)();
 app.disable('x-powered-by');
 app.use(express_1.default.json({ limit: '1mb' }));
+app.use(express_1.default.urlencoded({ extended: true }));
+// Log every incoming request
+app.use((req, _res, next) => {
+    console.log(`[request] ${req.method} ${req.path} body:`, JSON.stringify(req.body));
+    next();
+});
 app.get('/health', (_req, res) => {
     res.status(200).send('ok');
 });
-app.post('/channel', channel_1.verifyChannel);
-app.post('/registered', registered_1.verifyRegistered);
-app.post('/deposited', deposited_1.verifyDeposited);
+app.post('/verify/channel', channel_1.verifyChannel);
+app.post('/verify/registered', registered_1.verifyRegistered);
+app.post('/verify/deposited', deposited_1.verifyDeposited);
 app.get('/', (_req, res) => {
     res.status(200).json({
         service: 'kommo-verify',
