@@ -75,29 +75,35 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
         console.log('[webhook] keyword matched → tag:', tag);
 
         try {
-          // Step 1: fetch current tags (must use ?with=tags)
+          // Step 1: fetch current tags to get their IDs for deletion
           const leadResp = await axios.get(
             `${KOMMO_BASE}/leads/${leadId}?with=tags`,
             { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
           );
-          const currentTags = leadResp.data?.tags ?? [];
-          console.log('[webhook] current tags before clear:', JSON.stringify(currentTags));
+          const currentTags: { id: number; name: string }[] = leadResp.data?._embedded?.tags ?? [];
+          console.log('[webhook] current tags:', JSON.stringify(currentTags));
 
-          // Step 2: clear all existing tags
-          const clearResp = await axios.patch(
-            `${KOMMO_BASE}/leads/${leadId}?with=tags`,
-            { tags: [] },
-            { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
-          );
-          console.log('[webhook] clear status:', clearResp.status, '| tags after clear:', JSON.stringify(clearResp.data?.tags));
+          // Step 2: use tags_to_delete + tags_to_add in a single PATCH (correct Kommo API format)
+          const patchBody: any = {
+            _embedded: {
+              tags: [{ name: tag }],  // this replaces all tags when sent via _embedded
+            },
+          };
 
-          // Step 3: set the new tag
+          // If there are existing tags, explicitly delete them by ID
+          if (currentTags.length > 0) {
+            patchBody.tags_to_delete = currentTags.map(t => t.id);
+          }
+          patchBody.tags_to_add = [{ name: tag }];
+
+          console.log('[webhook] patching with:', JSON.stringify(patchBody));
+
           const setResp = await axios.patch(
-            `${KOMMO_BASE}/leads/${leadId}?with=tags`,
-            { tags: [{ name: tag }] },
+            `${KOMMO_BASE}/leads/${leadId}`,
+            patchBody,
             { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
           );
-          console.log('[webhook] set status:', setResp.status, '| tags after set:', JSON.stringify(setResp.data?.tags));
+          console.log('[webhook] patch status:', setResp.status, '| response:', JSON.stringify(setResp.data));
           console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId);
         } catch (patchErr: any) {
           console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));
