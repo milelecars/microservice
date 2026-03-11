@@ -10,14 +10,15 @@ const headers = {
 };
 
 export interface LeadRecord {
-  kommo_lead_id:      string;
-  telegram_user_id?:  number;
-  telegram_username?: string;
-  source_platform?:   string;
-  first_name?:        string;
-  last_name?:         string;
-  current_tag?:       string;
-  kommo_stage?:       string;
+  kommo_lead_id:             string;
+  telegram_user_id?:         number;
+  telegram_username?:        string;
+  source_platform?:          string;
+  original_source_platform?: string; // set once on first contact, never overwritten
+  first_name?:               string;
+  last_name?:                string;
+  current_tag?:              string;
+  kommo_stage?:              string;
 }
 
 // Get existing lead from Supabase by telegram_user_id

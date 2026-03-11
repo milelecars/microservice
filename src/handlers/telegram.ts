@@ -128,14 +128,15 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       if (!existing) {
         // New user — insert full record
         await insertLead({
-          kommo_lead_id:     leadId,
-          telegram_user_id:  Number(telegramUserId),
-          telegram_username: telegramUsername ? `@${telegramUsername}` : undefined,
-          source_platform:   sourcePlatform,
-          first_name:        firstName,
-          last_name:         lastName,
-          current_tag:       currentTag,
-          kommo_stage:       stageName,
+          kommo_lead_id:            leadId,
+          telegram_user_id:         Number(telegramUserId),
+          telegram_username:        telegramUsername ? `@${telegramUsername}` : undefined,
+          source_platform:          sourcePlatform,
+          original_source_platform: sourcePlatform, // set once, never overwritten
+          first_name:               firstName,
+          last_name:                lastName,
+          current_tag:              currentTag,
+          kommo_stage:              stageName,
         });
       } else {
         // Returning user — update only fields that changed
@@ -144,6 +145,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         if (existing.kommo_lead_id !== leadId)                                          changes.kommo_lead_id     = leadId;
         if (telegramUsername && existing.telegram_username !== `@${telegramUsername}`)  changes.telegram_username = `@${telegramUsername}`;
         if (sourcePlatform   && existing.source_platform   !== sourcePlatform)          changes.source_platform   = sourcePlatform;
+        // original_source_platform is NEVER overwritten once set
+        if (sourcePlatform && !existing.original_source_platform)                       changes.original_source_platform = sourcePlatform;
         if (firstName        && existing.first_name        !== firstName)               changes.first_name        = firstName;
         if (lastName         && existing.last_name         !== lastName)                changes.last_name         = lastName;
         if (currentTag       && existing.current_tag       !== currentTag)              changes.current_tag       = currentTag;

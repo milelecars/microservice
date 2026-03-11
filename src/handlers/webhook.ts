@@ -17,19 +17,22 @@ const TAG_RULES: { tag: string; keywords: string[] }[] = [
   },
   {
     tag: 'Convince',
-    keywords: ['scam', 'trust', 'legit', 'real', 'fake', 'guarantee', 'lose money', 'safe', 'halal', 'haram', 'proof', 'too good', 'pyramid'],
+    // Removed overly broad: 'real', 'safe', 'trust' — too common in normal sentences
+    keywords: ['is this a scam', 'is it legit', 'is this legit', 'is it real', 'is this real', 'is it fake', 'is this fake', 'guarantee', 'lose money', 'is it halal', 'is this halal', 'haram', 'show me proof', 'too good to be true', 'pyramid scheme', 'ponzi'],
   },
   {
     tag: 'Convert',
-    keywords: ['sign up', 'how do i join', 'register', 'deposit', 'payment', 'minimum', 'how much', 'send me'],
+    // Removed overly broad: 'minimum', 'how much' — could be about anything
+    keywords: ['sign up', 'how do i join', 'how to join', 'want to join', 'want to register', 'register now', 'how to register', 'how to deposit', 'make a deposit', 'payment method', 'how much to start', 'minimum deposit', 'send me the link', 'send me a link'],
   },
   {
     tag: 'Not Now',
-    keywords: ['later', 'not now', 'next month', 'salary', 'busy', 'think about it', 'not ready', 'come back', 'maybe'],
+    // Removed overly broad: 'maybe', 'busy' — too common
+    keywords: ['not now', 'next month', 'wait for salary', 'think about it', 'not ready yet', 'come back later', 'remind me later', 'not interested yet'],
   },
   {
     tag: 'Member Care',
-    keywords: ['lost money', "don't understand", 'stop loss', 'withdraw', "can't find", 'not working'],
+    keywords: ['lost my money', 'losing money', "don't understand the platform", 'stop loss hit', 'want to withdraw', 'how to withdraw', "can't find it", 'not working for me', 'having issues', 'need help'],
   },
 ];
 
