@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
+import { updateLeadTag } from './supabase';
 
 const KOMMO_BASE  = 'https://fahadriazex1.kommo.com/api/v4';
 const KOMMO_TOKEN = process.env.KOMMO_TOKEN!;
@@ -75,36 +76,29 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
         console.log('[webhook] keyword matched → tag:', tag);
 
         try {
-          // Step 1: fetch current tags to get their IDs for deletion
+          // Fetch current tags to get IDs for deletion
           const leadResp = await axios.get(
             `${KOMMO_BASE}/leads/${leadId}?with=tags`,
             { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
           );
           const currentTags: { id: number; name: string }[] = leadResp.data?._embedded?.tags ?? [];
-          console.log('[webhook] current tags:', JSON.stringify(currentTags));
 
-          // Step 2: use tags_to_delete + tags_to_add in a single PATCH (correct Kommo API format)
-          const patchBody: any = {
-            _embedded: {
-              tags: [{ name: tag }],  // this replaces all tags when sent via _embedded
-            },
-          };
-
-          // If there are existing tags, explicitly delete them by ID
+          // Delete all existing tags, add new one
+          const patchBody: any = { tags_to_add: [{ name: tag }] };
           if (currentTags.length > 0) {
             patchBody.tags_to_delete = currentTags.map(t => t.id);
           }
-          patchBody.tags_to_add = [{ name: tag }];
 
-          console.log('[webhook] patching with:', JSON.stringify(patchBody));
-
-          const setResp = await axios.patch(
+          await axios.patch(
             `${KOMMO_BASE}/leads/${leadId}`,
             patchBody,
             { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
           );
-          console.log('[webhook] patch status:', setResp.status, '| response:', JSON.stringify(setResp.data));
           console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId);
+
+          // Sync tag to Supabase
+          await updateLeadTag(String(leadId), tag);
+
         } catch (patchErr: any) {
           console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));
         }

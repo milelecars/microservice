@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleNewMessage = handleNewMessage;
 const axios_1 = __importDefault(require("axios"));
+const supabase_1 = require("./supabase");
 const KOMMO_BASE = 'https://fahadriazex1.kommo.com/api/v4';
 const KOMMO_TOKEN = process.env.KOMMO_TOKEN;
 // ─── Keyword → Tag mapping (last match wins) ───────────────────────────────
@@ -69,25 +70,18 @@ async function handleNewMessage(req, res) {
                 }
                 console.log('[webhook] keyword matched → tag:', tag);
                 try {
-                    // Step 1: fetch current tags to get their IDs for deletion
+                    // Fetch current tags to get IDs for deletion
                     const leadResp = await axios_1.default.get(`${KOMMO_BASE}/leads/${leadId}?with=tags`, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
                     const currentTags = leadResp.data?._embedded?.tags ?? [];
-                    console.log('[webhook] current tags:', JSON.stringify(currentTags));
-                    // Step 2: use tags_to_delete + tags_to_add in a single PATCH (correct Kommo API format)
-                    const patchBody = {
-                        _embedded: {
-                            tags: [{ name: tag }], // this replaces all tags when sent via _embedded
-                        },
-                    };
-                    // If there are existing tags, explicitly delete them by ID
+                    // Delete all existing tags, add new one
+                    const patchBody = { tags_to_add: [{ name: tag }] };
                     if (currentTags.length > 0) {
                         patchBody.tags_to_delete = currentTags.map(t => t.id);
                     }
-                    patchBody.tags_to_add = [{ name: tag }];
-                    console.log('[webhook] patching with:', JSON.stringify(patchBody));
-                    const setResp = await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, patchBody, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
-                    console.log('[webhook] patch status:', setResp.status, '| response:', JSON.stringify(setResp.data));
+                    await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, patchBody, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
                     console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId);
+                    // Sync tag to Supabase
+                    await (0, supabase_1.updateLeadTag)(String(leadId), tag);
                 }
                 catch (patchErr) {
                     console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));
