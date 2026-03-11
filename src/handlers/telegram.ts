@@ -55,7 +55,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       console.log('[telegram] user:', { id: telegramUserId, username: telegramUsername });
 
       // 3. Parse source platform from /start <param>
-      //    e.g. message text "/start tiktok" → "TikTok"
       //    Links: t.me/askfahadbot?start=tiktok  (or instagram, youtube, facebook, direct)
       let sourcePlatform: string | undefined;
       const msgText: string = msg?.text ?? '';
@@ -87,7 +86,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       }
 
       const leadId = activeTalk.entity_id;
-      console.log('[telegram] matched lead:', leadId);
+      console.log('[telegram] matched lead:', leadId, '| full talk:', JSON.stringify(activeTalk));
 
       // 6. Fetch the lead to get the linked contact ID
       const leadResp = await axios.get(
@@ -95,8 +94,12 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
       );
 
-      const contactId = leadResp.data?._embedded?.contacts?.[0]?.id;
-      console.log('[telegram] linked contact:', contactId);
+      // Try contacts embedded in lead, fallback to talk's own contact_id field
+      const contactId =
+        leadResp.data?._embedded?.contacts?.[0]?.id ??
+        activeTalk?.contact_id;
+
+      console.log('[telegram] linked contact:', contactId, '| lead contacts raw:', JSON.stringify(leadResp.data?._embedded?.contacts));
 
       // 7. Patch lead — Telegram User ID + Source Platform (if /start param found)
       const leadFields: any[] = [
@@ -113,15 +116,23 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       );
       console.log('[telegram] lead patched | status:', leadPatch.status);
 
-      // 8. Patch contact — Telegram Username (only if user has one set)
+      // 8. Patch contact — fetch first to get existing fields, then merge
       if (contactId && telegramUsername) {
+        const contactGetResp = await axios.get(
+          `${KOMMO_BASE}/contacts/${contactId}`,
+          { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
+        );
+
+        const existingFields: any[] = contactGetResp.data?.custom_fields_values ?? [];
+        // Remove old TG username entry if exists, then append updated value
+        const mergedFields = [
+          ...existingFields.filter((f: any) => f.field_id !== FIELD_TG_USERNAME),
+          { field_id: FIELD_TG_USERNAME, values: [{ value: `@${telegramUsername}` }] },
+        ];
+
         const contactPatch = await axios.patch(
           `${KOMMO_BASE}/contacts/${contactId}`,
-          {
-            custom_fields_values: [
-              { field_id: FIELD_TG_USERNAME, values: [{ value: telegramUsername }] },
-            ]
-          },
+          { custom_fields_values: mergedFields },
           { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
         );
         console.log('[telegram] contact patched | status:', contactPatch.status);
