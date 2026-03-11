@@ -51,8 +51,16 @@ async function handleStageChange(req, res) {
                 return;
             }
             console.log('[stage] lead:', leadId, '→ stage:', stageName);
-            // Update only the stage in Supabase
-            await (0, supabase_1.updateLead)(leadId, { kommo_stage: stageName });
+            // Look up TG user ID from Kommo lead to update Supabase by telegram_user_id
+            const leadResp = await axios_1.default.get(`${KOMMO_BASE}/leads/${leadId}`, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
+            const tgUserId = leadResp.data?.custom_fields_values
+                ?.find((f) => f.field_id === 1067290)?.values?.[0]?.value;
+            if (tgUserId) {
+                await (0, supabase_1.updateLead)(Number(tgUserId), { kommo_stage: stageName, kommo_lead_id: leadId });
+            }
+            else {
+                console.warn('[stage] no TG user ID on lead — skipping Supabase update');
+            }
         }
         catch (err) {
             console.error('[stage] error:', err?.response?.data ?? err.message);

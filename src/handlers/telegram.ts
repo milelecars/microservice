@@ -122,31 +122,33 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       });
       console.log('[telegram] Kommo lead patched');
 
-      // ── Supabase: insert or update only changed fields ──────────────────
-      const existing = await getLead(leadId);
+      // ── Supabase: insert or update only changed fields (keyed by telegram_user_id) ─
+      const existing = await getLead(Number(telegramUserId));
 
       if (!existing) {
-        // New lead — insert everything
+        // New user — insert full record
         await insertLead({
-          kommo_lead_id:    leadId,
-          telegram_user_id: Number(telegramUserId),
+          kommo_lead_id:     leadId,
+          telegram_user_id:  Number(telegramUserId),
           telegram_username: telegramUsername ? `@${telegramUsername}` : undefined,
-          source_platform:  sourcePlatform,
-          first_name:       firstName,
-          last_name:        lastName,
-          current_tag:      currentTag,
-          kommo_stage:      stageName,
+          source_platform:   sourcePlatform,
+          first_name:        firstName,
+          last_name:         lastName,
+          current_tag:       currentTag,
+          kommo_stage:       stageName,
         });
       } else {
-        // Existing lead — only send fields that changed
+        // Returning user — update only fields that changed
         const changes: Partial<LeadRecord> = {};
-        if (telegramUsername && existing.telegram_username !== `@${telegramUsername}`) changes.telegram_username = `@${telegramUsername}`;
-        if (sourcePlatform   && existing.source_platform   !== sourcePlatform)         changes.source_platform   = sourcePlatform;
+        // Always update kommo_lead_id in case they have a new conversation
+        if (existing.kommo_lead_id !== leadId)                                          changes.kommo_lead_id     = leadId;
+        if (telegramUsername && existing.telegram_username !== `@${telegramUsername}`)  changes.telegram_username = `@${telegramUsername}`;
+        if (sourcePlatform   && existing.source_platform   !== sourcePlatform)          changes.source_platform   = sourcePlatform;
         if (firstName        && existing.first_name        !== firstName)               changes.first_name        = firstName;
         if (lastName         && existing.last_name         !== lastName)                changes.last_name         = lastName;
         if (currentTag       && existing.current_tag       !== currentTag)              changes.current_tag       = currentTag;
         if (stageName        && existing.kommo_stage       !== stageName)               changes.kommo_stage       = stageName;
-        await updateLead(leadId, changes);
+        await updateLead(Number(telegramUserId), changes);
       }
 
       console.log('[telegram] ✓ done | lead:', leadId, '| stage:', stageName, '| tags:', currentTag);

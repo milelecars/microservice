@@ -104,10 +104,10 @@ async function handleTelegramWebhook(req, res) {
                 headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000,
             });
             console.log('[telegram] Kommo lead patched');
-            // ── Supabase: insert or update only changed fields ──────────────────
-            const existing = await (0, supabase_1.getLead)(leadId);
+            // ── Supabase: insert or update only changed fields (keyed by telegram_user_id) ─
+            const existing = await (0, supabase_1.getLead)(Number(telegramUserId));
             if (!existing) {
-                // New lead — insert everything
+                // New user — insert full record
                 await (0, supabase_1.insertLead)({
                     kommo_lead_id: leadId,
                     telegram_user_id: Number(telegramUserId),
@@ -120,8 +120,11 @@ async function handleTelegramWebhook(req, res) {
                 });
             }
             else {
-                // Existing lead — only send fields that changed
+                // Returning user — update only fields that changed
                 const changes = {};
+                // Always update kommo_lead_id in case they have a new conversation
+                if (existing.kommo_lead_id !== leadId)
+                    changes.kommo_lead_id = leadId;
                 if (telegramUsername && existing.telegram_username !== `@${telegramUsername}`)
                     changes.telegram_username = `@${telegramUsername}`;
                 if (sourcePlatform && existing.source_platform !== sourcePlatform)
@@ -134,7 +137,7 @@ async function handleTelegramWebhook(req, res) {
                     changes.current_tag = currentTag;
                 if (stageName && existing.kommo_stage !== stageName)
                     changes.kommo_stage = stageName;
-                await (0, supabase_1.updateLead)(leadId, changes);
+                await (0, supabase_1.updateLead)(Number(telegramUserId), changes);
             }
             console.log('[telegram] ✓ done | lead:', leadId, '| stage:', stageName, '| tags:', currentTag);
         }

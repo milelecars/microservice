@@ -98,8 +98,14 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
           );
           console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId, '| status:', patchResp.status);
 
-          // Sync tag to Supabase
-          await updateLead(String(leadId), { current_tag: tag });
+          // Sync tag to Supabase — look up TG user ID from the lead
+          const tgUserId = leadResp.data?.custom_fields_values
+            ?.find((f: any) => f.field_id === 1067290)?.values?.[0]?.value;
+          if (tgUserId) {
+            await updateLead(Number(tgUserId), { current_tag: tag });
+          } else {
+            console.warn('[webhook] no TG user ID on lead — skipping Supabase tag update');
+          }
 
         } catch (patchErr: any) {
           console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));

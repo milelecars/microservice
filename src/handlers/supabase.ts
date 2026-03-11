@@ -20,11 +20,11 @@ export interface LeadRecord {
   kommo_stage?:       string;
 }
 
-// Get existing lead from Supabase by kommo_lead_id
-export async function getLead(kommoLeadId: string): Promise<LeadRecord | null> {
+// Get existing lead from Supabase by telegram_user_id
+export async function getLead(telegramUserId: number): Promise<LeadRecord | null> {
   try {
     const resp = await axios.get(
-      `${SUPABASE_URL}/rest/v1/leads?kommo_lead_id=eq.${kommoLeadId}&limit=1`,
+      `${SUPABASE_URL}/rest/v1/leads?telegram_user_id=eq.${telegramUserId}&limit=1`,
       { headers, timeout: 10_000 }
     );
     return resp.data?.[0] ?? null;
@@ -48,19 +48,19 @@ export async function insertLead(data: LeadRecord): Promise<void> {
   }
 }
 
-// Partial update — only send fields that actually changed
-export async function updateLead(kommoLeadId: string, changes: Partial<LeadRecord>): Promise<void> {
+// Partial update — only send fields that actually changed, keyed by telegram_user_id
+export async function updateLead(telegramUserId: number | string, changes: Partial<LeadRecord>): Promise<void> {
   if (Object.keys(changes).length === 0) {
-    console.log('[supabase] no changes for lead:', kommoLeadId, '— skipping');
+    console.log('[supabase] no changes for TG user:', telegramUserId, '— skipping');
     return;
   }
   try {
     const resp = await axios.patch(
-      `${SUPABASE_URL}/rest/v1/leads?kommo_lead_id=eq.${kommoLeadId}`,
+      `${SUPABASE_URL}/rest/v1/leads?telegram_user_id=eq.${telegramUserId}`,
       changes,
       { headers: { ...headers, 'Prefer': 'return=minimal' }, timeout: 10_000 }
     );
-    console.log('[supabase] updated lead:', kommoLeadId, '| changes:', JSON.stringify(changes), '| status:', resp.status);
+    console.log('[supabase] updated TG user:', telegramUserId, '| changes:', JSON.stringify(changes), '| status:', resp.status);
   } catch (err: any) {
     console.error('[supabase] update failed:', err?.response?.data ?? err.message);
   }

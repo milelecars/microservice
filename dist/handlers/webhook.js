@@ -82,8 +82,15 @@ async function handleNewMessage(req, res) {
                     console.log('[webhook] patch payload:', JSON.stringify(patchBody));
                     const patchResp = await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, patchBody, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
                     console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId, '| status:', patchResp.status);
-                    // Sync tag to Supabase
-                    await (0, supabase_1.updateLead)(String(leadId), { current_tag: tag });
+                    // Sync tag to Supabase — look up TG user ID from the lead
+                    const tgUserId = leadResp.data?.custom_fields_values
+                        ?.find((f) => f.field_id === 1067290)?.values?.[0]?.value;
+                    if (tgUserId) {
+                        await (0, supabase_1.updateLead)(Number(tgUserId), { current_tag: tag });
+                    }
+                    else {
+                        console.warn('[webhook] no TG user ID on lead — skipping Supabase tag update');
+                    }
                 }
                 catch (patchErr) {
                     console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));
