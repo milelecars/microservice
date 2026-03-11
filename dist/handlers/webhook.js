@@ -81,7 +81,7 @@ async function handleNewMessage(req, res) {
                     await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, patchBody, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
                     console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId);
                     // Sync tag to Supabase
-                    await (0, supabase_1.updateLeadTag)(String(leadId), tag);
+                    await (0, supabase_1.updateLead)(String(leadId), { current_tag: tag });
                 }
                 catch (patchErr) {
                     console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));

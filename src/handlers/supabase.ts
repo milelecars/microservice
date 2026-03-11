@@ -7,41 +7,61 @@ const headers = {
   'Content-Type': 'application/json',
   'apikey': SUPABASE_KEY,
   'Authorization': `Bearer ${SUPABASE_KEY}`,
-  'Prefer': 'resolution=merge-duplicates',
 };
 
 export interface LeadRecord {
-  kommo_lead_id:     string;
-  telegram_user_id?: number;
+  kommo_lead_id:      string;
+  telegram_user_id?:  number;
   telegram_username?: string;
-  source_platform?:  string;
-  first_name?:       string;
-  last_name?:        string;
-  current_tag?:      string;
+  source_platform?:   string;
+  first_name?:        string;
+  last_name?:         string;
+  current_tag?:       string;
+  kommo_stage?:       string;
 }
 
-export async function upsertLead(data: LeadRecord): Promise<void> {
+// Get existing lead from Supabase by kommo_lead_id
+export async function getLead(kommoLeadId: string): Promise<LeadRecord | null> {
+  try {
+    const resp = await axios.get(
+      `${SUPABASE_URL}/rest/v1/leads?kommo_lead_id=eq.${kommoLeadId}&limit=1`,
+      { headers, timeout: 10_000 }
+    );
+    return resp.data?.[0] ?? null;
+  } catch (err: any) {
+    console.error('[supabase] getLead failed:', err?.response?.data ?? err.message);
+    return null;
+  }
+}
+
+// Insert new lead (only on first contact)
+export async function insertLead(data: LeadRecord): Promise<void> {
   try {
     const resp = await axios.post(
       `${SUPABASE_URL}/rest/v1/leads`,
       data,
-      { headers: { ...headers, 'Prefer': 'resolution=merge-duplicates,return=minimal' }, timeout: 10_000 }
+      { headers: { ...headers, 'Prefer': 'return=minimal' }, timeout: 10_000 }
     );
-    console.log('[supabase] upserted lead:', data.kommo_lead_id, '| status:', resp.status);
+    console.log('[supabase] inserted lead:', data.kommo_lead_id, '| status:', resp.status);
   } catch (err: any) {
-    console.error('[supabase] upsert failed:', err?.response?.data ?? err.message);
+    console.error('[supabase] insert failed:', err?.response?.data ?? err.message);
   }
 }
 
-export async function updateLeadTag(kommoLeadId: string, tag: string): Promise<void> {
+// Partial update — only send fields that actually changed
+export async function updateLead(kommoLeadId: string, changes: Partial<LeadRecord>): Promise<void> {
+  if (Object.keys(changes).length === 0) {
+    console.log('[supabase] no changes for lead:', kommoLeadId, '— skipping');
+    return;
+  }
   try {
     const resp = await axios.patch(
       `${SUPABASE_URL}/rest/v1/leads?kommo_lead_id=eq.${kommoLeadId}`,
-      { current_tag: tag },
+      changes,
       { headers: { ...headers, 'Prefer': 'return=minimal' }, timeout: 10_000 }
     );
-    console.log('[supabase] tag updated:', tag, '→ lead:', kommoLeadId, '| status:', resp.status);
+    console.log('[supabase] updated lead:', kommoLeadId, '| changes:', JSON.stringify(changes), '| status:', resp.status);
   } catch (err: any) {
-    console.error('[supabase] tag update failed:', err?.response?.data ?? err.message);
+    console.error('[supabase] update failed:', err?.response?.data ?? err.message);
   }
 }

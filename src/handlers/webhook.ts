@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
-import { updateLeadTag } from './supabase';
+import { updateLead } from './supabase';
 
 const KOMMO_BASE  = 'https://fahadriazex1.kommo.com/api/v4';
 const KOMMO_TOKEN = process.env.KOMMO_TOKEN!;
@@ -97,7 +97,7 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
           console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId);
 
           // Sync tag to Supabase
-          await updateLeadTag(String(leadId), tag);
+          await updateLead(String(leadId), { current_tag: tag });
 
         } catch (patchErr: any) {
           console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));

@@ -9,11 +9,12 @@ const registered_1 = require("./handlers/registered");
 const deposited_1 = require("./handlers/deposited");
 const webhook_1 = require("./handlers/webhook");
 const telegram_1 = require("./handlers/telegram");
-// ...
+const stage_1 = require("./handlers/stage");
 const app = (0, express_1.default)();
 app.disable('x-powered-by');
 app.use(express_1.default.json({ limit: '1mb' }));
 app.use(express_1.default.urlencoded({ extended: true }));
+app.post('/webhook/stage', stage_1.handleStageChange);
 app.use((req, res, next) => {
     const requestId = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`).toString();
     const start = Date.now();

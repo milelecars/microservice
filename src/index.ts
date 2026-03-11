@@ -4,13 +4,15 @@ import { verifyRegistered } from './handlers/registered';
 import { verifyDeposited } from './handlers/deposited';
 import { handleNewMessage } from './handlers/webhook';
 import { handleTelegramWebhook } from './handlers/telegram';
-// ...
+import { handleStageChange } from './handlers/stage';   
+
 
 const app = express();
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.post('/webhook/stage', handleStageChange);  
 
 app.use((req: Request, res: Response, next) => {
   const requestId = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`).toString();
