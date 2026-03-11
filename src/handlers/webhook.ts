@@ -75,9 +75,9 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
         console.log('[webhook] keyword matched → tag:', tag);
 
         try {
-          // Step 1: fetch current tags so we can log them
+          // Step 1: fetch current tags (must use ?with=tags)
           const leadResp = await axios.get(
-            `${KOMMO_BASE}/leads/${leadId}`,
+            `${KOMMO_BASE}/leads/${leadId}?with=tags`,
             { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
           );
           const currentTags = leadResp.data?.tags ?? [];
@@ -85,19 +85,19 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
 
           // Step 2: clear all existing tags
           const clearResp = await axios.patch(
-            `${KOMMO_BASE}/leads/${leadId}`,
+            `${KOMMO_BASE}/leads/${leadId}?with=tags`,
             { tags: [] },
             { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
           );
-          console.log('[webhook] clear tags response status:', clearResp.status, '| tags after clear:', JSON.stringify(clearResp.data?.tags));
+          console.log('[webhook] clear status:', clearResp.status, '| tags after clear:', JSON.stringify(clearResp.data?.tags));
 
           // Step 3: set the new tag
           const setResp = await axios.patch(
-            `${KOMMO_BASE}/leads/${leadId}`,
+            `${KOMMO_BASE}/leads/${leadId}?with=tags`,
             { tags: [{ name: tag }] },
             { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
           );
-          console.log('[webhook] set tag response status:', setResp.status, '| tags after set:', JSON.stringify(setResp.data?.tags));
+          console.log('[webhook] set status:', setResp.status, '| tags after set:', JSON.stringify(setResp.data?.tags));
           console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId);
         } catch (patchErr: any) {
           console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));
