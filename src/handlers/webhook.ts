@@ -9,11 +9,11 @@ const KOMMO_TOKEN = process.env.KOMMO_TOKEN!;
 const TAG_RULES: { tag: string; keywords: string[] }[] = [
   {
     tag: 'Discovery',
-    keywords: ['what is swiss vault', 'who is fahad', 'how does it work', 'tell me more', 'what is this', 'what do you do'],
+    keywords: ['what is swiss vault', "what's swiss vault", 'swiss vault', 'who is fahad', 'how does it work', 'tell me more', 'what is this', 'what do you do'],
   },
   {
     tag: 'Beginner',
-    keywords: ['what is trading', 'what is crypto', 'how do i buy', 'never traded', "i'm new", "don't understand", 'what is a broker'],
+    keywords: ['what is trading', "what's trading", 'what is crypto', "what's crypto", 'how do i buy', 'never traded', "i'm new", "don't understand", 'what is a broker'],
   },
   {
     tag: 'Convince',
@@ -82,19 +82,21 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
             { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
           );
           const currentTags: { id: number; name: string }[] = leadResp.data?._embedded?.tags ?? [];
+          console.log('[webhook] tags before replace:', currentTags.map(t => `${t.name}(${t.id})`).join(', ') || 'none');
 
-          // Delete all existing tags, add new one
+          // Delete ALL existing tags, add only the new keyword tag
           const patchBody: any = { tags_to_add: [{ name: tag }] };
           if (currentTags.length > 0) {
             patchBody.tags_to_delete = currentTags.map(t => t.id);
           }
+          console.log('[webhook] patch payload:', JSON.stringify(patchBody));
 
-          await axios.patch(
+          const patchResp = await axios.patch(
             `${KOMMO_BASE}/leads/${leadId}`,
             patchBody,
             { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
           );
-          console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId);
+          console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId, '| status:', patchResp.status);
 
           // Sync tag to Supabase
           await updateLead(String(leadId), { current_tag: tag });

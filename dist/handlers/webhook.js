@@ -12,11 +12,11 @@ const KOMMO_TOKEN = process.env.KOMMO_TOKEN;
 const TAG_RULES = [
     {
         tag: 'Discovery',
-        keywords: ['what is swiss vault', 'who is fahad', 'how does it work', 'tell me more', 'what is this', 'what do you do'],
+        keywords: ['what is swiss vault', "what's swiss vault", 'swiss vault', 'who is fahad', 'how does it work', 'tell me more', 'what is this', 'what do you do'],
     },
     {
         tag: 'Beginner',
-        keywords: ['what is trading', 'what is crypto', 'how do i buy', 'never traded', "i'm new", "don't understand", 'what is a broker'],
+        keywords: ['what is trading', "what's trading", 'what is crypto', "what's crypto", 'how do i buy', 'never traded', "i'm new", "don't understand", 'what is a broker'],
     },
     {
         tag: 'Convince',
@@ -73,13 +73,15 @@ async function handleNewMessage(req, res) {
                     // Fetch current tags to get IDs for deletion
                     const leadResp = await axios_1.default.get(`${KOMMO_BASE}/leads/${leadId}?with=tags`, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
                     const currentTags = leadResp.data?._embedded?.tags ?? [];
-                    // Delete all existing tags, add new one
+                    console.log('[webhook] tags before replace:', currentTags.map(t => `${t.name}(${t.id})`).join(', ') || 'none');
+                    // Delete ALL existing tags, add only the new keyword tag
                     const patchBody = { tags_to_add: [{ name: tag }] };
                     if (currentTags.length > 0) {
                         patchBody.tags_to_delete = currentTags.map(t => t.id);
                     }
-                    await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, patchBody, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
-                    console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId);
+                    console.log('[webhook] patch payload:', JSON.stringify(patchBody));
+                    const patchResp = await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, patchBody, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
+                    console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId, '| status:', patchResp.status);
                     // Sync tag to Supabase
                     await (0, supabase_1.updateLead)(String(leadId), { current_tag: tag });
                 }
