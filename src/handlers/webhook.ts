@@ -75,12 +75,30 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
         console.log('[webhook] keyword matched → tag:', tag);
 
         try {
-          await axios.patch(
+          // Step 1: fetch current tags so we can log them
+          const leadResp = await axios.get(
+            `${KOMMO_BASE}/leads/${leadId}`,
+            { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
+          );
+          const currentTags = leadResp.data?.tags ?? [];
+          console.log('[webhook] current tags before clear:', JSON.stringify(currentTags));
+
+          // Step 2: clear all existing tags
+          const clearResp = await axios.patch(
+            `${KOMMO_BASE}/leads/${leadId}`,
+            { tags: [] },
+            { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
+          );
+          console.log('[webhook] clear tags response status:', clearResp.status, '| tags after clear:', JSON.stringify(clearResp.data?.tags));
+
+          // Step 3: set the new tag
+          const setResp = await axios.patch(
             `${KOMMO_BASE}/leads/${leadId}`,
             { tags: [{ name: tag }] },
             { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
           );
-          console.log('[webhook] tag applied:', tag, '→ lead:', leadId);
+          console.log('[webhook] set tag response status:', setResp.status, '| tags after set:', JSON.stringify(setResp.data?.tags));
+          console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId);
         } catch (patchErr: any) {
           console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));
         }

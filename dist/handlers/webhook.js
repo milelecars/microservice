@@ -69,8 +69,17 @@ async function handleNewMessage(req, res) {
                 }
                 console.log('[webhook] keyword matched → tag:', tag);
                 try {
-                    await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, { tags: [{ name: tag }] }, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
-                    console.log('[webhook] tag applied:', tag, '→ lead:', leadId);
+                    // Step 1: fetch current tags so we can log them
+                    const leadResp = await axios_1.default.get(`${KOMMO_BASE}/leads/${leadId}`, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
+                    const currentTags = leadResp.data?.tags ?? [];
+                    console.log('[webhook] current tags before clear:', JSON.stringify(currentTags));
+                    // Step 2: clear all existing tags
+                    const clearResp = await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, { tags: [] }, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
+                    console.log('[webhook] clear tags response status:', clearResp.status, '| tags after clear:', JSON.stringify(clearResp.data?.tags));
+                    // Step 3: set the new tag
+                    const setResp = await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, { tags: [{ name: tag }] }, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
+                    console.log('[webhook] set tag response status:', setResp.status, '| tags after set:', JSON.stringify(setResp.data?.tags));
+                    console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId);
                 }
                 catch (patchErr) {
                     console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));
