@@ -68,15 +68,33 @@ export async function handleStageChange(req: Request, res: Response): Promise<vo
       const tgUserId = leadResp.data?.custom_fields_values
         ?.find((f: any) => f.field_id === 1067290)?.values?.[0]?.value;
 
-      if (tgUserId) {
-        await updateLead(Number(tgUserId), { kommo_stage: stageName, kommo_lead_id: leadId });
-      } else {
+      if (!tgUserId) {
         console.warn('[stage] no TG user ID on lead — skipping Supabase update');
+        return;
       }
+
+      // Base update — always sync stage
+      const changes: any = { kommo_stage: stageName, kommo_lead_id: leadId };
+
+      // Set original_source_platform ONCE when lead reaches Pending Registration
+      const PENDING_STAGE = 'pending registeration'; // match your exact Kommo stage name (case-insensitive)
+      if (stageName.toLowerCase() === PENDING_STAGE) {
+        // Fetch current Supabase record to check if original_source_platform already set
+        const { getLead } = await import('./supabase');
+        const existing = await getLead(Number(tgUserId));
+
+        if (existing && !existing.original_source_platform && existing.source_platform) {
+          changes.original_source_platform = existing.source_platform;
+          console.log('[stage] setting original_source_platform:', existing.source_platform, '→ TG user:', tgUserId);
+        } else {
+          console.log('[stage] original_source_platform already set or no source — skipping');
+        }
+      }
+
+      await updateLead(Number(tgUserId), changes);
 
     } catch (err: any) {
       console.error('[stage] error:', err?.response?.data ?? err.message);
     }
   });
 }
-//kommo
