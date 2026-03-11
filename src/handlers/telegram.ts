@@ -52,7 +52,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
       let sourcePlatform: string | undefined;
       if (msgText.startsWith('/start ')) {
-        const param = msgText.replace('/start ', '').trim().toLowerCase();
+        const param = msgText.replace('/start ', 'start').trim().toLowerCase();
         sourcePlatform = SOURCE_MAP[param] ?? param;
         console.log('[telegram] source platform:', sourcePlatform);
       }

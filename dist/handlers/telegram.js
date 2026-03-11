@@ -45,7 +45,7 @@ async function handleTelegramWebhook(req, res) {
             const isStartCommand = msgText === '/start' || msgText.startsWith('/start ');
             let sourcePlatform;
             if (msgText.startsWith('/start ')) {
-                const param = msgText.replace('/start ', '').trim().toLowerCase();
+                const param = msgText.replace('/start ', 'start').trim().toLowerCase();
                 sourcePlatform = SOURCE_MAP[param] ?? param;
                 console.log('[telegram] source platform:', sourcePlatform);
             }
