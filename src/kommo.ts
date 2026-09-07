@@ -142,6 +142,36 @@ export async function patch<T>(path: string, body: unknown): Promise<T | null> {
   return resp.data ?? null;
 }
 
+/** POST to a Kommo API path. */
+export async function post<T>(path: string, body: unknown): Promise<T | null> {
+  const resp = await axios.post<T>(`${KOMMO_BASE}${path}`, body, {
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    timeout: 10_000,
+  });
+  return resp.data ?? null;
+}
+
+// ── Talks ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Close a Kommo talk so the next Telegram message starts a fresh conversation.
+ * A 404 means it is closed already, which is the state we wanted anyway.
+ */
+export async function closeTalk(talkId: string | number, telegramUserId: string | number): Promise<boolean> {
+  try {
+    await post(`/talks/${talkId}/close`, { force_close: true });
+    console.log('[talk] closed', talkId, 'for TG', telegramUserId);
+    return true;
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.status === 404) {
+      console.log('[talk]', talkId, 'already closed for TG', telegramUserId);
+      return true;
+    }
+    console.error('[talk] close failed', talkId, 'for TG', telegramUserId, '|', errText(err));
+    return false;
+  }
+}
+
 // ── Stage map (cached after first successful load) ─────────────────────────────
 
 let stageMap: Record<number, string> = {};

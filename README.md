@@ -141,6 +141,7 @@ Keyed by `telegram_user_id`.
 |---|---|
 | `kommo_lead_id` | telegram, stage, contact |
 | `kommo_contact_id` | contact |
+| `kommo_talk_id` | message — the Kommo talk, closed on the next `/start` |
 | `telegram_user_id` | telegram (row key) |
 | `telegram_username` | telegram |
 | `source_platform` | telegram — updated on every `/start <code>` |
@@ -157,6 +158,12 @@ Keyed by `telegram_user_id`.
 | `lost_at` | stage, on Lost |
 | `in_channel` | stage, channel, `chat_member` |
 | `join_check_failures` | channel, incremented on every `not_joined` |
+
+`kommo_talk_id` is newer than that migration — add it with:
+
+```sql
+alter table public.founder_circle_members add column if not exists kommo_talk_id text;
+```
 
 The table and these columns are created by `supabase_founder_circle.sql`. The service never creates
 tables — it only reads and writes rows through the Supabase REST API.

@@ -6,6 +6,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CONTACT_FIELD = exports.LEAD_FIELD = exports.STAGE = exports.PIPELINE_ID = exports.KOMMO_BASE = void 0;
 exports.get = get;
 exports.patch = patch;
+exports.post = post;
+exports.closeTalk = closeTalk;
 exports.getStageMap = getStageMap;
 exports.resolveTelegramUserId = resolveTelegramUserId;
 exports.fieldValue = fieldValue;
@@ -64,6 +66,34 @@ async function patch(path, body) {
         timeout: 10000,
     });
     return resp.data ?? null;
+}
+/** POST to a Kommo API path. */
+async function post(path, body) {
+    const resp = await axios_1.default.post(`${exports.KOMMO_BASE}${path}`, body, {
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        timeout: 10000,
+    });
+    return resp.data ?? null;
+}
+// ── Talks ─────────────────────────────────────────────────────────────────────
+/**
+ * Close a Kommo talk so the next Telegram message starts a fresh conversation.
+ * A 404 means it is closed already, which is the state we wanted anyway.
+ */
+async function closeTalk(talkId, telegramUserId) {
+    try {
+        await post(`/talks/${talkId}/close`, { force_close: true });
+        console.log('[talk] closed', talkId, 'for TG', telegramUserId);
+        return true;
+    }
+    catch (err) {
+        if (axios_1.default.isAxiosError(err) && err.response?.status === 404) {
+            console.log('[talk]', talkId, 'already closed for TG', telegramUserId);
+            return true;
+        }
+        console.error('[talk] close failed', talkId, 'for TG', telegramUserId, '|', (0, env_1.errText)(err));
+        return false;
+    }
 }
 // ── Stage map (cached after first successful load) ─────────────────────────────
 let stageMap = {};

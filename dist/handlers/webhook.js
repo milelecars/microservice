@@ -112,6 +112,7 @@ async function handleNewMessage(req, res) {
                     continue;
                 const leadId = msg.entity_id ?? msg.element_id;
                 const contactId = msg.contact_id;
+                const talkId = msg.talk_id;
                 const text = msg.text ?? '';
                 const authorName = msg.author?.name ?? '';
                 console.log('[webhook] incoming message | lead:', leadId, '| contact:', contactId, '| text:', text);
@@ -154,6 +155,13 @@ async function handleNewMessage(req, res) {
                     if (contactId) {
                         const answersFor = telegramUserId ?? (0, kommo_1.fieldValue)(lead?.custom_fields_values, kommo_1.LEAD_FIELD.TG_USER_ID);
                         if (answersFor) {
+                            // Remember the talk so a later /start can close it
+                            if (talkId) {
+                                const row = await (0, supabase_1.getLead)(answersFor);
+                                if (row && row.kommo_talk_id !== String(talkId)) {
+                                    await (0, supabase_1.updateLead)(answersFor, { kommo_talk_id: String(talkId) });
+                                }
+                            }
                             await sleep(3000);
                             await (0, contact_1.syncContactAnswers)(contactId, leadId, answersFor);
                         }

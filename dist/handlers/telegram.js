@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleTelegramWebhook = handleTelegramWebhook;
 const axios_1 = __importDefault(require("axios"));
 const env_1 = require("../env");
+const kommo_1 = require("../kommo");
 const pending_1 = require("../pending");
 const supabase_1 = require("./supabase");
 // Kommo's Telegram hook for @FounderCircleAdminBot. Falls back to the literal
@@ -21,6 +22,7 @@ const SOURCE_MAP = {
 };
 const IN_CHANNEL_STATUSES = ['member', 'administrator', 'creator'];
 const OUT_OF_CHANNEL_STATUSES = ['left', 'kicked'];
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // ── chat_member updates (channel join / leave) ────────────────────────────────
 async function handleChatMember(update) {
     const channelId = (0, env_1.requireEnv)('CHANNEL_ID');
@@ -88,6 +90,17 @@ async function handleTelegramWebhook(req, res) {
                     sourcePlatform = SOURCE_MAP[param] ?? param;
             }
             console.log('[telegram] update | TG user:', telegramUserId, '| start:', isStartCommand, '| source:', sourcePlatform ?? '-');
+            // Returning user pressing /start: close the talk they left open, so
+            // Kommo treats what follows as a new conversation and the Salesbot runs
+            // again. First-time users have no row and no talk, and ordinary messages
+            // must never close anything.
+            if (isStartCommand) {
+                const existing = await (0, supabase_1.getLead)(telegramUserId);
+                if (existing?.kommo_talk_id) {
+                    await (0, kommo_1.closeTalk)(existing.kommo_talk_id, telegramUserId);
+                    await sleep(1000);
+                }
+            }
             // Forward to Kommo (the hook URL carries the bot token - never log it)
             const forwardBody = isStartCommand
                 ? { ...body, message: { ...msg, text: 'Hi', entities: undefined } }

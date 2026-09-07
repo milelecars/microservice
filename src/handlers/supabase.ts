@@ -18,6 +18,7 @@ function restUrl(path: string): string {
 export interface LeadRecord {
   kommo_lead_id:             string;
   kommo_contact_id?:         string;
+  kommo_talk_id?:            string; // Kommo talk (conversation) this row is in
   telegram_user_id?:         number;
   telegram_username?:        string;
   source_platform?:          string;

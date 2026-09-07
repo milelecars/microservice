@@ -28,6 +28,7 @@ interface KommoMessage {
   entity_id?: string | number;
   element_id?: string | number;
   contact_id?: string | number;
+  talk_id?: string | number;
   author?: { id?: string | number; name?: string };
 }
 
@@ -154,6 +155,7 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
 
         const leadId     = msg.entity_id ?? msg.element_id;
         const contactId  = msg.contact_id;
+        const talkId     = msg.talk_id;
         const text       = msg.text ?? '';
         const authorName = msg.author?.name ?? '';
 
@@ -204,6 +206,14 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
           if (contactId) {
             const answersFor = telegramUserId ?? fieldValue(lead?.custom_fields_values, LEAD_FIELD.TG_USER_ID);
             if (answersFor) {
+              // Remember the talk so a later /start can close it
+              if (talkId) {
+                const row = await getLead(answersFor);
+                if (row && row.kommo_talk_id !== String(talkId)) {
+                  await updateLead(answersFor, { kommo_talk_id: String(talkId) });
+                }
+              }
+
               await sleep(3000);
               await syncContactAnswers(contactId, leadId, answersFor);
             } else {

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
 import { requireEnv, errText } from '../env';
+import { closeTalk } from '../kommo';
 import { pushPending } from '../pending';
 import { getLead, updateLead, upsertLead, nowIso, LeadRecord } from './supabase';
 
@@ -53,6 +54,8 @@ const SOURCE_MAP: Record<string, string> = {
 
 const IN_CHANNEL_STATUSES = ['member', 'administrator', 'creator'];
 const OUT_OF_CHANNEL_STATUSES = ['left', 'kicked'];
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 // ── chat_member updates (channel join / leave) ────────────────────────────────
 
@@ -138,6 +141,18 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         '| start:', isStartCommand,
         '| source:', sourcePlatform ?? '-'
       );
+
+      // Returning user pressing /start: close the talk they left open, so
+      // Kommo treats what follows as a new conversation and the Salesbot runs
+      // again. First-time users have no row and no talk, and ordinary messages
+      // must never close anything.
+      if (isStartCommand) {
+        const existing = await getLead(telegramUserId);
+        if (existing?.kommo_talk_id) {
+          await closeTalk(existing.kommo_talk_id, telegramUserId);
+          await sleep(1000);
+        }
+      }
 
       // Forward to Kommo (the hook URL carries the bot token - never log it)
       const forwardBody = isStartCommand
