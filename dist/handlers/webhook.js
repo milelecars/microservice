@@ -51,6 +51,22 @@ function detectTag(text) {
     return matched;
 }
 /**
+ * Last resort for the first message of a brand new lead, whose text Kommo may
+ * render differently from what we forwarded: if nothing in Supabase points at
+ * this lead yet, take the newest queued user who has no lead of their own.
+ */
+async function matchByRecency(leadId) {
+    const alreadyLinked = await (0, supabase_1.getLeadByKommoLeadId)(leadId);
+    if (alreadyLinked)
+        return null;
+    for (const candidate of (0, pending_1.recentPending)(pending_1.FALLBACK_WINDOW_MS)) {
+        const row = await (0, supabase_1.getLead)(candidate.telegram_user_id);
+        if (row && !row.kommo_lead_id)
+            return candidate;
+    }
+    return null;
+}
+/**
  * Point the Supabase row at the Kommo lead/contact this message came from, and
  * backfill the lead's Telegram custom fields the first time we see the lead.
  */
@@ -107,14 +123,26 @@ async function handleNewMessage(req, res) {
                     // ── Match this message back to the Telegram update we forwarded ───
                     let telegramUserId;
                     if (contactId) {
-                        const match = (0, pending_1.matchPending)(text, authorName);
+                        let match = (0, pending_1.matchPendingByText)(text, authorName);
+                        let via = 'message match';
+                        // First Kommo message of a lead: the text Kommo shows can differ
+                        // from what we forwarded, so fall back to the newest queued user
+                        // who is not linked to a lead yet.
+                        if (!match) {
+                            match = await matchByRecency(leadId);
+                            if (match)
+                                via = 'fallback by recency';
+                        }
                         if (match) {
                             telegramUserId = String(match.telegram_user_id);
+                            (0, pending_1.takePending)(match);
                             await linkLeadAndContact(lead, String(leadId), String(contactId), telegramUserId);
-                            console.log('[link] lead', leadId, '<-> TG', telegramUserId, 'via message match');
+                            console.log('[link] lead', leadId, '<->', 'TG', telegramUserId, 'via', via);
+                            // Backfill whatever Kommo already holds for this contact
+                            await (0, contact_1.syncContactAnswers)(contactId, leadId, telegramUserId);
                         }
                         else {
-                            console.warn('[link] unmatched message | text:', text, '| author:', authorName || '-', '| pending:', (0, pending_1.pendingSize)());
+                            console.warn('[link] unmatched message | text:', text, '| author:', authorName || '-', '| pending:', JSON.stringify((0, pending_1.listPending)()));
                         }
                     }
                     else {

@@ -7,6 +7,7 @@ import { handleTelegramWebhook } from './handlers/telegram';
 import { handleStageChange } from './handlers/stage';
 import { handleContactUpdate } from './handlers/contact';
 import { assertEnv } from './env';
+import { listPending } from './pending';
 
 assertEnv();
 
@@ -54,6 +55,12 @@ app.use((req: Request, res: Response, next) => {
 
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).send('ok');
+});
+
+// What the pending-match table is holding right now (no secrets in here)
+app.get('/debug/pending', (_req: Request, res: Response) => {
+  const entries = listPending();
+  res.status(200).json({ count: entries.length, entries });
 });
 
 app.post('/verify/channel', verifyChannel);

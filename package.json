@@ -8,7 +8,8 @@
     "postinstall": "npm run build",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "set-webhook": "ts-node src/scripts/setWebhook.ts"
+    "set-webhook": "ts-node src/scripts/setWebhook.ts",
+    "test:pending": "ts-node -P tsconfig.test.json scripts/test-pending.ts"
   },
   "dependencies": {
     "axios": "^1.6.0",

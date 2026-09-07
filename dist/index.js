@@ -12,6 +12,7 @@ const telegram_1 = require("./handlers/telegram");
 const stage_1 = require("./handlers/stage");
 const contact_1 = require("./handlers/contact");
 const env_1 = require("./env");
+const pending_1 = require("./pending");
 (0, env_1.assertEnv)();
 const app = (0, express_1.default)();
 app.disable('x-powered-by');
@@ -48,6 +49,11 @@ app.use((req, res, next) => {
 });
 app.get('/health', (_req, res) => {
     res.status(200).send('ok');
+});
+// What the pending-match table is holding right now (no secrets in here)
+app.get('/debug/pending', (_req, res) => {
+    const entries = (0, pending_1.listPending)();
+    res.status(200).json({ count: entries.length, entries });
 });
 app.post('/verify/channel', channel_1.verifyChannel);
 app.post('/verify/registered', registered_1.verifyRegistered);
