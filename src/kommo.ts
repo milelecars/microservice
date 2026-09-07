@@ -27,6 +27,7 @@ export const LEAD_FIELD = {
 
 /** Custom fields on the CONTACT, written by the Salesbot. */
 export const CONTACT_FIELD = {
+  STATUS:   1003176, // funnel status: "joined" / "link sent" / empty
   PHONE:    1003178, // multitext, enum WORK
   EMAIL:    1003180, // multitext, enum WORK
   COUNTRY:  1383512,
@@ -149,6 +150,27 @@ export async function post<T>(path: string, body: unknown): Promise<T | null> {
     timeout: 10_000,
   });
   return resp.data ?? null;
+}
+
+// ── Contact status (field 1003176) ────────────────────────────────────────────
+
+export type ContactStatus = 'joined' | 'link sent' | '';
+
+/**
+ * Mirror where the person stands onto the contact, so Kommo and Supabase never
+ * disagree. An empty value clears the field.
+ */
+export async function setContactStatus(contactId: string | number, value: ContactStatus): Promise<boolean> {
+  try {
+    await patch(`/contacts/${contactId}`, {
+      custom_fields_values: [{ field_id: CONTACT_FIELD.STATUS, values: [{ value }] }],
+    });
+    console.log('[status] contact', contactId, 'set to', value === '' ? '""' : value);
+    return true;
+  } catch (err) {
+    console.error('[status] contact', contactId, 'update failed:', errText(err));
+    return false;
+  }
 }
 
 // ── Talks ─────────────────────────────────────────────────────────────────────

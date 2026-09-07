@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import axios from 'axios';
 import { resumeBot } from '../callback';
 import { errText } from '../env';
-import { LEAD_FIELD, KommoLead, get as kommoGet, patch as kommoPatch } from '../kommo';
+import { LEAD_FIELD, KommoLead, get as kommoGet, patch as kommoPatch, setContactStatus } from '../kommo';
 import { resolveTelegramId } from './identity';
 import { getLead, updateLead, nowIso, LeadRecord } from './supabase';
 
@@ -10,7 +10,7 @@ interface TelegramChatMemberResponse {
   result?: { status?: string };
 }
 
-async function syncJoined(telegramUserId: string): Promise<void> {
+async function syncJoined(telegramUserId: string, contactId?: string | number): Promise<void> {
   const existing = await getLead(telegramUserId);
   if (!existing) {
     console.warn('[channel] no Supabase row for TG user:', telegramUserId, '- skipping sync');
@@ -19,6 +19,9 @@ async function syncJoined(telegramUserId: string): Promise<void> {
   const changes: Partial<LeadRecord> = { in_channel: true };
   if (!existing.joined_at) changes.joined_at = nowIso();
   await updateLead(telegramUserId, changes);
+
+  const contact = contactId ?? existing.kommo_contact_id;
+  if (contact) await setContactStatus(contact, 'joined');
 }
 
 async function syncNotJoined(telegramUserId: string): Promise<void> {
@@ -112,6 +115,8 @@ export async function verifyChannel(req: Request, res: Response): Promise<void> 
       if (existing?.in_channel) {
         console.log('[channel] in_channel already true - answering joined | TG user:', telegramUserId);
         if (!existing.joined_at) await updateLead(telegramUserId, { joined_at: nowIso() });
+        const knownContact = contactId ?? existing.kommo_contact_id;
+        if (knownContact) await setContactStatus(knownContact, 'joined');
         await resumeBot(return_url, 'joined', kommoToken, 'Channel membership confirmed');
         return;
       }
@@ -127,7 +132,7 @@ export async function verifyChannel(req: Request, res: Response): Promise<void> 
 
       const isJoined = ['member', 'administrator', 'creator'].includes(status ?? '');
 
-      if (isJoined) await syncJoined(telegramUserId);
+      if (isJoined) await syncJoined(telegramUserId, contactId);
       else await syncNotJoined(telegramUserId);
 
       await resumeBot(

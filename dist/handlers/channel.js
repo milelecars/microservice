@@ -10,7 +10,7 @@ const env_1 = require("../env");
 const kommo_1 = require("../kommo");
 const identity_1 = require("./identity");
 const supabase_1 = require("./supabase");
-async function syncJoined(telegramUserId) {
+async function syncJoined(telegramUserId, contactId) {
     const existing = await (0, supabase_1.getLead)(telegramUserId);
     if (!existing) {
         console.warn('[channel] no Supabase row for TG user:', telegramUserId, '- skipping sync');
@@ -20,6 +20,9 @@ async function syncJoined(telegramUserId) {
     if (!existing.joined_at)
         changes.joined_at = (0, supabase_1.nowIso)();
     await (0, supabase_1.updateLead)(telegramUserId, changes);
+    const contact = contactId ?? existing.kommo_contact_id;
+    if (contact)
+        await (0, kommo_1.setContactStatus)(contact, 'joined');
 }
 async function syncNotJoined(telegramUserId) {
     const existing = await (0, supabase_1.getLead)(telegramUserId);
@@ -103,6 +106,9 @@ async function verifyChannel(req, res) {
                 console.log('[channel] in_channel already true - answering joined | TG user:', telegramUserId);
                 if (!existing.joined_at)
                     await (0, supabase_1.updateLead)(telegramUserId, { joined_at: (0, supabase_1.nowIso)() });
+                const knownContact = contactId ?? existing.kommo_contact_id;
+                if (knownContact)
+                    await (0, kommo_1.setContactStatus)(knownContact, 'joined');
                 await (0, callback_1.resumeBot)(return_url, 'joined', kommoToken, 'Channel membership confirmed');
                 return;
             }
@@ -112,7 +118,7 @@ async function verifyChannel(req, res) {
             console.log('[channel] getChatMember status:', status, 'for user:', telegramUserId);
             const isJoined = ['member', 'administrator', 'creator'].includes(status ?? '');
             if (isJoined)
-                await syncJoined(telegramUserId);
+                await syncJoined(telegramUserId, contactId);
             else
                 await syncNotJoined(telegramUserId);
             await (0, callback_1.resumeBot)(return_url, isJoined ? 'joined' : 'not_joined', kommoToken, isJoined ? 'Channel membership confirmed' : 'User has not joined the channel');

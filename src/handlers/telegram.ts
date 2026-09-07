@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
 import { requireEnv, errText } from '../env';
-import { closeTalk } from '../kommo';
+import { ContactStatus, closeTalk, setContactStatus } from '../kommo';
 import { pushPending } from '../pending';
 import { getLead, updateLead, upsertLead, nowIso, LeadRecord } from './supabase';
 
@@ -57,6 +57,13 @@ const OUT_OF_CHANNEL_STATUSES = ['left', 'kicked'];
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
+/** Where this person stands, as Kommo contact field 1003176 spells it. */
+function statusFor(row: LeadRecord): ContactStatus {
+  if (row.joined_at || row.in_channel) return 'joined';
+  if (row.link_sent_at) return 'link sent';
+  return '';
+}
+
 // ── chat_member updates (channel join / leave) ────────────────────────────────
 
 async function handleChatMember(update: TgChatMemberUpdated): Promise<void> {
@@ -86,6 +93,7 @@ async function handleChatMember(update: TgChatMemberUpdated): Promise<void> {
   if (IN_CHANNEL_STATUSES.includes(status)) {
     changes.in_channel = true;
     if (!existing.joined_at) changes.joined_at = nowIso();
+    if (existing.kommo_contact_id) await setContactStatus(existing.kommo_contact_id, 'joined');
   } else if (OUT_OF_CHANNEL_STATUSES.includes(status)) {
     changes.in_channel = false;
     changes.left_at = nowIso();
@@ -148,6 +156,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       // must never close anything.
       if (isStartCommand) {
         const existing = await getLead(telegramUserId);
+
+        if (existing?.kommo_contact_id) {
+          await setContactStatus(existing.kommo_contact_id, statusFor(existing));
+        }
+
         if (existing?.kommo_talk_id) {
           await closeTalk(existing.kommo_talk_id, telegramUserId);
           await sleep(1000);

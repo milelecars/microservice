@@ -23,6 +23,14 @@ const SOURCE_MAP = {
 const IN_CHANNEL_STATUSES = ['member', 'administrator', 'creator'];
 const OUT_OF_CHANNEL_STATUSES = ['left', 'kicked'];
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+/** Where this person stands, as Kommo contact field 1003176 spells it. */
+function statusFor(row) {
+    if (row.joined_at || row.in_channel)
+        return 'joined';
+    if (row.link_sent_at)
+        return 'link sent';
+    return '';
+}
 // ── chat_member updates (channel join / leave) ────────────────────────────────
 async function handleChatMember(update) {
     const channelId = (0, env_1.requireEnv)('CHANNEL_ID');
@@ -47,6 +55,8 @@ async function handleChatMember(update) {
         changes.in_channel = true;
         if (!existing.joined_at)
             changes.joined_at = (0, supabase_1.nowIso)();
+        if (existing.kommo_contact_id)
+            await (0, kommo_1.setContactStatus)(existing.kommo_contact_id, 'joined');
     }
     else if (OUT_OF_CHANNEL_STATUSES.includes(status)) {
         changes.in_channel = false;
@@ -96,6 +106,9 @@ async function handleTelegramWebhook(req, res) {
             // must never close anything.
             if (isStartCommand) {
                 const existing = await (0, supabase_1.getLead)(telegramUserId);
+                if (existing?.kommo_contact_id) {
+                    await (0, kommo_1.setContactStatus)(existing.kommo_contact_id, statusFor(existing));
+                }
                 if (existing?.kommo_talk_id) {
                     await (0, kommo_1.closeTalk)(existing.kommo_talk_id, telegramUserId);
                     await sleep(1000);

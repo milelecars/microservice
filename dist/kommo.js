@@ -7,6 +7,7 @@ exports.CONTACT_FIELD = exports.LEAD_FIELD = exports.STAGE = exports.PIPELINE_ID
 exports.get = get;
 exports.patch = patch;
 exports.post = post;
+exports.setContactStatus = setContactStatus;
 exports.closeTalk = closeTalk;
 exports.getStageMap = getStageMap;
 exports.resolveTelegramUserId = resolveTelegramUserId;
@@ -38,6 +39,7 @@ exports.LEAD_FIELD = {
 };
 /** Custom fields on the CONTACT, written by the Salesbot. */
 exports.CONTACT_FIELD = {
+    STATUS: 1003176, // funnel status: "joined" / "link sent" / empty
     PHONE: 1003178, // multitext, enum WORK
     EMAIL: 1003180, // multitext, enum WORK
     COUNTRY: 1383512,
@@ -74,6 +76,23 @@ async function post(path, body) {
         timeout: 10000,
     });
     return resp.data ?? null;
+}
+/**
+ * Mirror where the person stands onto the contact, so Kommo and Supabase never
+ * disagree. An empty value clears the field.
+ */
+async function setContactStatus(contactId, value) {
+    try {
+        await patch(`/contacts/${contactId}`, {
+            custom_fields_values: [{ field_id: exports.CONTACT_FIELD.STATUS, values: [{ value }] }],
+        });
+        console.log('[status] contact', contactId, 'set to', value === '' ? '""' : value);
+        return true;
+    }
+    catch (err) {
+        console.error('[status] contact', contactId, 'update failed:', (0, env_1.errText)(err));
+        return false;
+    }
 }
 // ── Talks ─────────────────────────────────────────────────────────────────────
 /**
