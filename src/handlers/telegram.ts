@@ -3,7 +3,15 @@ import axios from 'axios';
 import { requireEnv, errText } from '../env';
 import { ContactStatus, closeTalk, setContactStatus } from '../kommo';
 import { pushPending } from '../pending';
+import {
+  answerCallbackQuery,
+  getChatMemberStatus,
+  isInChannelStatus,
+  sendJoinMessage,
+  sendNotJoinedMessage,
+} from '../telegram-api';
 import { getLead, updateLead, upsertLead, nowIso, LeadRecord } from './supabase';
+import { welcomeUser } from './welcome';
 
 // ── Telegram update shapes (only what we read) ────────────────────────────────
 
@@ -31,12 +39,21 @@ interface TgChatMemberUpdated {
   new_chat_member?: { status?: string; user?: TgUser };
 }
 
+interface TgCallbackQuery {
+  id?: string;
+  from?: TgUser;
+  data?: string;
+}
+
 interface TgUpdate {
   message?: TgMessage;
   edited_message?: TgMessage;
-  callback_query?: { from?: TgUser; data?: string };
+  callback_query?: TgCallbackQuery;
   chat_member?: TgChatMemberUpdated;
 }
+
+/** callback_data of our own "I've Joined" button. */
+const JOINED_CALLBACK = 'fc_joined';
 
 // Kommo's Telegram hook for @FounderCircleAdminBot. Falls back to the literal
 // URL so the service starts without KOMMO_TG_WEBHOOK set.
@@ -64,6 +81,35 @@ function statusFor(row: LeadRecord): ContactStatus {
   return '';
 }
 
+// ── "I've Joined" tap ─────────────────────────────────────────────────────────
+
+async function handleJoinedTap(query: TgCallbackQuery): Promise<void> {
+  if (query.id) await answerCallbackQuery(query.id);
+
+  const telegramUserId = query.from?.id;
+  if (!telegramUserId) {
+    console.warn('[join] callback without from.id - skipping');
+    return;
+  }
+
+  const status = await getChatMemberStatus(requireEnv('CHANNEL_ID'), telegramUserId);
+  console.log('[join] I have joined tapped | TG user:', telegramUserId, '| status:', status ?? '-');
+
+  if (isInChannelStatus(status)) {
+    await welcomeUser(telegramUserId);
+    return;
+  }
+
+  await sendNotJoinedMessage(telegramUserId);
+
+  const existing = await getLead(telegramUserId);
+  if (existing) {
+    await updateLead(telegramUserId, {
+      join_check_failures: (existing.join_check_failures ?? 0) + 1,
+    });
+  }
+}
+
 // ── chat_member updates (channel join / leave) ────────────────────────────────
 
 async function handleChatMember(update: TgChatMemberUpdated): Promise<void> {
@@ -89,20 +135,19 @@ async function handleChatMember(update: TgChatMemberUpdated): Promise<void> {
     return;
   }
 
-  const changes: Partial<LeadRecord> = {};
   if (IN_CHANNEL_STATUSES.includes(status)) {
-    changes.in_channel = true;
-    if (!existing.joined_at) changes.joined_at = nowIso();
-    if (existing.kommo_contact_id) await setContactStatus(existing.kommo_contact_id, 'joined');
-  } else if (OUT_OF_CHANNEL_STATUSES.includes(status)) {
-    changes.in_channel = false;
-    changes.left_at = nowIso();
-  } else {
+    // Telegram saw the join first hand — same routine as the button
+    await welcomeUser(telegramUserId, existing);
+    console.log('[telegram] chat_member', status, '| TG user:', telegramUserId);
+    return;
+  }
+
+  if (!OUT_OF_CHANNEL_STATUSES.includes(status)) {
     console.log('[telegram] chat_member status ignored:', status, '| TG user:', telegramUserId);
     return;
   }
 
-  await updateLead(telegramUserId, changes);
+  await updateLead(telegramUserId, { in_channel: false, left_at: nowIso() });
   console.log('[telegram] chat_member', status, '| TG user:', telegramUserId);
 }
 
@@ -118,6 +163,12 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       // chat_member updates are ours alone - Kommo must not see them
       if (body?.chat_member) {
         await handleChatMember(body.chat_member);
+        return;
+      }
+
+      // Our own button: handled here, never forwarded to Kommo
+      if (body?.callback_query?.data === JOINED_CALLBACK) {
+        await handleJoinedTap(body.callback_query);
         return;
       }
 
@@ -159,6 +210,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
         if (existing?.kommo_contact_id) {
           await setContactStatus(existing.kommo_contact_id, statusFor(existing));
+        }
+
+        // Got the link but never made it in: offer the join buttons again
+        if (existing?.link_sent_at && !existing.joined_at) {
+          await sendJoinMessage(telegramUserId);
         }
 
         if (existing?.kommo_talk_id) {

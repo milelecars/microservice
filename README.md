@@ -21,21 +21,28 @@ It also still serves the two Weex checks used by the older funnel (`/verify/regi
 5. The Salesbot asks its six questions and writes the answers onto the **contact**. Kommo's
    "contact added/updated" webhook hits `POST /webhook/contact`, which copies name, phone, email,
    country, age bracket and interest into Supabase.
-6. The Salesbot calls `POST /verify/channel`; the service asks Telegram `getChatMember` and answers
-   the bot with `joined` / `not_joined`.
-7. Kommo moves the lead to **Joined Channel**; `POST /webhook/stage` records the stage and the
-   `joined_at` / `lost_at` milestones. Telegram `chat_member` updates on the channel keep
-   `in_channel` honest even when someone leaves later.
+6. Kommo stops after the email: it sets the lead tag `Link sent` and contact field `1003176` to
+   `link sent`. **Everything after that belongs to this service.**
+7. The moment `link_sent_at` is first written, the service sends the join message from the bot —
+   a *Join Founder Circle* link button and an *I've Joined* button.
+8. Tapping *I've Joined* hits `POST /webhook/telegram` as a `callback_query`: the service calls
+   `getChatMember` and either runs the welcome routine or asks the person to join first and try
+   again. A `chat_member` update from the channel runs the same welcome routine, whichever
+   arrives first.
+9. The welcome routine sends the welcome message, writes `joined_at` / `in_channel` /
+   `welcome_sent`, moves the Kommo lead to **Joined Channel**, swaps the tag, sets the contact
+   status to `joined` and closes the talk. `POST /webhook/stage` still records stage changes made
+   inside Kommo, and `chat_member` keeps `in_channel` honest when someone leaves later.
 
 ## Endpoints
 
 | Endpoint | Called by | What it does |
 |---|---|---|
-| `POST /webhook/telegram` | Telegram | Forwards updates to Kommo, stamps the lead, upserts Supabase, handles `chat_member` join/leave |
+| `POST /webhook/telegram` | Telegram | Forwards updates to Kommo, upserts Supabase, sends the join message on `/start` for anyone still outside, handles the *I've Joined* tap and `chat_member` join/leave |
 | `POST /webhook/contact` | Kommo (contact added / updated) | Syncs the Salesbot's contact answers + tags into Supabase |
 | `POST /webhook/stage` | Kommo (lead status changed) | Syncs `kommo_stage`, sets `joined_at` / `lost_at` |
 | `POST /webhook/message` | Kommo (incoming message) | Keyword → tag rules on the lead |
-| `POST /verify/channel` | Kommo Salesbot (`widget_request`) | Telegram channel membership via `getChatMember` |
+| `POST /verify/channel` | Kommo Salesbot (`widget_request`) | Telegram channel membership via `getChatMember`. Still works, but no longer on the main path |
 | `POST /verify/registered` | Kommo Salesbot | Weex UID exists under the affiliate account |
 | `POST /verify/deposited` | Kommo Salesbot | Weex UID has deposited |
 | `GET /health` | Railway | `ok` |
@@ -60,6 +67,7 @@ The service refuses to start (exit 1) if any of the first six are missing.
 | `KOMMO_TG_WEBHOOK` | yes | Kommo's Telegram hook URL for @FounderCircleAdminBot. **Contains the bot token — secret.** |
 | `BOT_TOKEN` | yes | @FounderCircleAdminBot token |
 | `CHANNEL_ID` | yes | Founder Circle numeric id, starts with `-100` |
+| `CHANNEL_INVITE_LINK` | no | Invite link on the Join button (defaults to the Founder Circle link) |
 | `SUPABASE_URL` | yes | `https://<project>.supabase.co` |
 | `SUPABASE_KEY` | yes | Supabase service-role key |
 | `PUBLIC_URL` | for `set-webhook` | Public base URL of this deployment |
@@ -157,12 +165,17 @@ Keyed by `telegram_user_id`.
 | `left_at` | `chat_member`, on leave or kick |
 | `lost_at` | stage, on Lost |
 | `in_channel` | stage, channel, `chat_member` |
-| `join_check_failures` | channel, incremented on every `not_joined` |
+| `join_check_failures` | channel and the "I've Joined" tap, incremented on every failed check |
+| `join_message_sent` | answers sync — the join invitation went out once |
+| `welcome_sent` | welcome routine — the welcome went out once |
 
-`kommo_talk_id` is newer than that migration — add it with:
+These three are newer than that migration — add them with:
 
 ```sql
-alter table public.founder_circle_members add column if not exists kommo_talk_id text;
+alter table public.founder_circle_members
+  add column if not exists kommo_talk_id text,
+  add column if not exists join_message_sent boolean not null default false,
+  add column if not exists welcome_sent boolean not null default false;
 ```
 
 The table and these columns are created by `supabase_founder_circle.sql`. The service never creates

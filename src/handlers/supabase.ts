@@ -40,6 +40,8 @@ export interface LeadRecord {
   lost_at?:                  string | null;
   in_channel?:               boolean;
   join_check_failures?:      number;
+  join_message_sent?:        boolean; // join invitation sent once, after the email
+  welcome_sent?:             boolean; // welcome sent once, after the join was confirmed
 }
 
 export function nowIso(): string {

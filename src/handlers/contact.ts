@@ -11,6 +11,7 @@ import {
   hasTag,
   tagNames,
 } from '../kommo';
+import { sendJoinMessage } from '../telegram-api';
 import { resolveTelegramId } from './identity';
 import { getLead, insertLead, updateLead, diffLead, nowIso, LeadRecord } from './supabase';
 
@@ -68,11 +69,15 @@ export async function syncContactAnswers(
     }
     await insertLead(record);
     console.log('[answers] TG', telegramUserId, '| row created');
+    if (record.link_sent_at) await inviteToChannel(telegramUserId);
     return;
   }
 
   const changes = diffLead(existing, data, ['link_sent_at']);
   const changed = Object.keys(changes);
+
+  // link_sent_at only appears in the diff the first time the tag shows up
+  const linkJustSent = changes.link_sent_at !== undefined && !existing.join_message_sent;
 
   if (changed.length === 0) {
     console.log('[answers] TG', telegramUserId, '| no change');
@@ -81,6 +86,14 @@ export async function syncContactAnswers(
 
   await updateLead(telegramUserId, changes);
   console.log('[answers] TG', telegramUserId, '| updated:', changed.join(', '));
+
+  if (linkJustSent) await inviteToChannel(telegramUserId);
+}
+
+/** Send the join invitation once, and remember that we did. */
+async function inviteToChannel(telegramUserId: string | number): Promise<void> {
+  const sent = await sendJoinMessage(telegramUserId);
+  if (sent) await updateLead(telegramUserId, { join_message_sent: true });
 }
 
 /** The lead this contact is linked to inside the Founder Circle pipeline. */
