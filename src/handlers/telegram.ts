@@ -49,6 +49,12 @@ interface TgUpdate {
   chat_member?: TgChatMemberUpdated;
 }
 
+// Kommo's Telegram hook for @FounderCircleAdminBot. Falls back to the literal
+// URL so the service starts without KOMMO_TG_WEBHOOK set.
+const KOMMO_TG_WEBHOOK =
+  process.env.KOMMO_TG_WEBHOOK ??
+  'https://amojo.amocrm.com/~external/hooks/telegram?t=8593034950:AAG7lU1tK8XJWTIbVSHyeFHFwggzDiJD8Rk&';
+
 const SOURCE_MAP: Record<string, string> = {
   instagram: 'Instagram',
   facebook:  'Facebook',
@@ -212,7 +218,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         : body;
 
       try {
-        await axios.post(requireEnv('KOMMO_TG_WEBHOOK'), forwardBody, {
+        await axios.post(KOMMO_TG_WEBHOOK, forwardBody, {
           headers: { 'Content-Type': 'application/json' },
           timeout: 10_000,
         });

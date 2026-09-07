@@ -8,6 +8,10 @@ const axios_1 = __importDefault(require("axios"));
 const env_1 = require("../env");
 const kommo_1 = require("../kommo");
 const supabase_1 = require("./supabase");
+// Kommo's Telegram hook for @FounderCircleAdminBot. Falls back to the literal
+// URL so the service starts without KOMMO_TG_WEBHOOK set.
+const KOMMO_TG_WEBHOOK = process.env.KOMMO_TG_WEBHOOK ??
+    'https://amojo.amocrm.com/~external/hooks/telegram?t=8593034950:AAG7lU1tK8XJWTIbVSHyeFHFwggzDiJD8Rk&';
 const SOURCE_MAP = {
     instagram: 'Instagram',
     facebook: 'Facebook',
@@ -143,7 +147,7 @@ async function handleTelegramWebhook(req, res) {
                 ? { ...body, message: { ...msg, text: 'Hi', entities: undefined } }
                 : body;
             try {
-                await axios_1.default.post((0, env_1.requireEnv)('KOMMO_TG_WEBHOOK'), forwardBody, {
+                await axios_1.default.post(KOMMO_TG_WEBHOOK, forwardBody, {
                     headers: { 'Content-Type': 'application/json' },
                     timeout: 10000,
                 });

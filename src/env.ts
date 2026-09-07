@@ -3,7 +3,6 @@
 
 const REQUIRED_ENV = [
   'KOMMO_TOKEN',
-  'KOMMO_TG_WEBHOOK',
   'BOT_TOKEN',
   'CHANNEL_ID',
   'SUPABASE_URL',
