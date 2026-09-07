@@ -1,19 +1,6 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
 import { requireEnv, errText } from '../env';
-import {
-  LEAD_FIELD,
-  PIPELINE_ID,
-  KommoContact,
-  KommoCustomField,
-  KommoLead,
-  KommoList,
-  KommoTalk,
-  get as kommoGet,
-  patch as kommoPatch,
-  getStageMap,
-  tagNames,
-} from '../kommo';
 import { getLead, updateLead, upsertLead, nowIso, LeadRecord } from './supabase';
 
 // ── Telegram update shapes (only what we read) ────────────────────────────────
@@ -65,67 +52,6 @@ const SOURCE_MAP: Record<string, string> = {
 
 const IN_CHANNEL_STATUSES = ['member', 'administrator', 'creator'];
 const OUT_OF_CHANNEL_STATUSES = ['left', 'kicked'];
-
-const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
-
-// ── Lead lookup ───────────────────────────────────────────────────────────────
-
-/** Preferred path: the lead already carries the Telegram User ID custom field. */
-async function findLeadByCustomField(telegramUserId: number): Promise<KommoLead | null> {
-  try {
-    const data = await kommoGet<KommoList<'leads', KommoLead>>(
-      `/leads?filter[custom_fields][${LEAD_FIELD.TG_USER_ID}]=${encodeURIComponent(String(telegramUserId))}&with=contacts,tags`
-    );
-    const leads = data?._embedded?.leads ?? [];
-    return leads.find(l => l.pipeline_id === PIPELINE_ID) ?? leads[0] ?? null;
-  } catch (err) {
-    console.error('[telegram] lead filter lookup failed:', errText(err));
-    return null;
-  }
-}
-
-/**
- * First contact: the lead has no Telegram User ID yet, so match through the
- * talk's contact — its Telegram chat carries source_uid == telegram user id.
- */
-async function findLeadIdViaTalks(telegramUserId: number): Promise<string | null> {
-  try {
-    const data = await kommoGet<KommoList<'talks', KommoTalk>>('/talks?limit=10');
-    const talks = (data?._embedded?.talks ?? [])
-      .filter(t => t.entity_type === 'lead' && t.entity_id)
-      .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
-
-    const seen = new Set<number>();
-    for (const talk of talks) {
-      const contactId = talk.contact_id ?? talk._embedded?.contact?.id;
-      if (!contactId || seen.has(contactId)) continue;
-      seen.add(contactId);
-
-      const contact = await kommoGet<KommoContact>(`/contacts/${contactId}?with=chats`);
-      const matched = (contact?._embedded?.chats ?? []).some(
-        c => String(c.source_uid ?? c.external_id ?? '') === String(telegramUserId)
-      );
-      if (matched) return String(talk.entity_id);
-    }
-  } catch (err) {
-    console.error('[telegram] talks lookup failed:', errText(err));
-  }
-  return null;
-}
-
-async function findLead(
-  telegramUserId: number
-): Promise<{ leadId: string; lead: KommoLead | null; via: 'lead-filter' | 'talks' } | null> {
-  const byField = await findLeadByCustomField(telegramUserId);
-  if (byField) return { leadId: String(byField.id), lead: byField, via: 'lead-filter' };
-
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    const leadId = await findLeadIdViaTalks(telegramUserId);
-    if (leadId) return { leadId, lead: null, via: 'talks' };
-    if (attempt < 5) await sleep(2000);
-  }
-  return null;
-}
 
 // ── chat_member updates (channel join / leave) ────────────────────────────────
 
@@ -227,55 +153,23 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         console.error('[telegram] forward failed:', errText(err));
       }
 
-      const found = await findLead(telegramUserId);
-      if (!found) {
-        console.warn('[telegram] no lead found for TG user:', telegramUserId);
-        return;
-      }
-      console.log('[telegram] lead resolved via', found.via, '| lead:', found.leadId);
-
-      const lead = found.lead ?? (await kommoGet<KommoLead>(`/leads/${found.leadId}?with=tags`));
-      const stages = await getStageMap();
-      const stageName = lead ? stages[lead.status_id] : undefined;
-      const currentTag = tagNames(lead?._embedded?.tags);
-
-      // Patch Kommo lead custom fields
-      const leadFields: KommoCustomField[] = [
-        { field_id: LEAD_FIELD.TG_USER_ID, values: [{ value: Number(telegramUserId) }] },
-      ];
-      if (telegramUsername) {
-        leadFields.push({ field_id: LEAD_FIELD.TG_USERNAME, values: [{ value: `@${telegramUsername}` }] });
-      }
-      if (sourcePlatform) {
-        leadFields.push({ field_id: LEAD_FIELD.SOURCE_PLATFORM, values: [{ value: sourcePlatform }] });
-      }
-
-      await kommoPatch(`/leads/${found.leadId}`, { custom_fields_values: leadFields });
-      console.log('[telegram] Kommo lead patched:', found.leadId);
-
-      // Supabase: insert on first contact, otherwise patch only what changed.
-      // original_source_platform and started_at are written once and kept.
+      // The Kommo lead does not exist yet at this point — /webhook/message links
+      // the lead and contact once Kommo has created them. Here we only keep the
+      // Telegram identity and the traffic source, keyed on telegram_user_id.
       await upsertLead(
         telegramUserId,
         {
-          kommo_lead_id:            found.leadId,
           telegram_username:        telegramUsername ? `@${telegramUsername}` : undefined,
           source_platform:          sourcePlatform,
           original_source_platform: sourcePlatform,
           first_name:               firstName,
           last_name:                lastName,
-          current_tag:              currentTag,
-          kommo_stage:              stageName,
           started_at:               nowIso(),
         },
         { onlyIfNull: ['original_source_platform', 'started_at'] }
       );
 
-      console.log(
-        '[telegram] done | lead:', found.leadId,
-        '| stage:', stageName ?? '-',
-        '| tags:', currentTag ?? '-'
-      );
+      console.log('[telegram] row upserted | TG user:', telegramUserId);
     } catch (err) {
       console.error('[telegram] error:', errText(err));
     }

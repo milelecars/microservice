@@ -2,7 +2,14 @@ import { Request, Response } from 'express';
 import axios from 'axios';
 import { resumeBot } from '../callback';
 import { errText } from '../env';
-import { LEAD_FIELD, KommoContact, KommoLead, get as kommoGet, patch as kommoPatch, fieldValue } from '../kommo';
+import {
+  LEAD_FIELD,
+  KommoLead,
+  get as kommoGet,
+  patch as kommoPatch,
+  fieldValue,
+  resolveTelegramUserId,
+} from '../kommo';
 import { getLead, updateLead, nowIso, LeadRecord } from './supabase';
 
 interface TelegramChatMemberResponse {
@@ -94,20 +101,8 @@ export async function verifyChannel(req: Request, res: Response): Promise<void> 
       if (!telegramUserId && contactId) {
         console.log('[channel] no stored ID - fetching chats...');
 
-        const contactWithChats = await kommoGet<KommoContact>(`/contacts/${contactId}?with=chats`);
-        const chats = contactWithChats?._embedded?.chats ?? [];
-
-        // Telegram chats have origin "telegram" — source_uid IS the Telegram user ID
-        const tgChat = chats.find(
-          c => c.origin?.toLowerCase() === 'telegram' || c.channel_type?.toLowerCase() === 'telegram'
-        ) ?? chats.find(c => !!(c.source_uid ?? c.external_id));
-
-        if (tgChat) {
-          telegramUserId = (tgChat.source_uid ?? tgChat.external_id ?? '').toString() || undefined;
-          console.log('[channel] discovered telegramUserId from chat:', telegramUserId ?? '-');
-        } else {
-          console.log('[channel] no telegram chat found for contact:', contactId, '| chats:', chats.length);
-        }
+        telegramUserId = await resolveTelegramUserId(contactId);
+        console.log('[channel] discovered telegramUserId from chat:', telegramUserId ?? '-');
 
         // ── Step 3: save discovered ID onto the LEAD (1067290 is a lead field)
         if (telegramUserId) {

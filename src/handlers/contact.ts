@@ -9,6 +9,7 @@ import {
   get as kommoGet,
   fieldValue,
   hasTag,
+  resolveTelegramUserId,
   tagNames,
 } from '../kommo';
 import { upsertLead, nowIso, LeadRecord } from './supabase';
@@ -69,9 +70,16 @@ export async function handleContactUpdate(req: Request, res: Response): Promise<
         return;
       }
 
-      const telegramUserId = fieldValue(lead.custom_fields_values, LEAD_FIELD.TG_USER_ID);
+      // Field not filled in yet — fall back to this contact's Telegram chat
+      const telegramUserId =
+        fieldValue(lead.custom_fields_values, LEAD_FIELD.TG_USER_ID) ??
+        (await resolveTelegramUserId(contactId));
+
       if (!telegramUserId) {
-        console.warn('[contact] no Telegram User ID on lead:', lead.id, '- skipping');
+        console.warn(
+          '[contact] no Telegram User ID on lead:', lead.id,
+          'and no telegram chat on contact:', contactId, '- skipping'
+        );
         return;
       }
 

@@ -6,7 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleTelegramWebhook = handleTelegramWebhook;
 const axios_1 = __importDefault(require("axios"));
 const env_1 = require("../env");
-const kommo_1 = require("../kommo");
 const supabase_1 = require("./supabase");
 // Kommo's Telegram hook for @FounderCircleAdminBot. Falls back to the literal
 // URL so the service starts without KOMMO_TG_WEBHOOK set.
@@ -21,60 +20,6 @@ const SOURCE_MAP = {
 };
 const IN_CHANNEL_STATUSES = ['member', 'administrator', 'creator'];
 const OUT_OF_CHANNEL_STATUSES = ['left', 'kicked'];
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-// ── Lead lookup ───────────────────────────────────────────────────────────────
-/** Preferred path: the lead already carries the Telegram User ID custom field. */
-async function findLeadByCustomField(telegramUserId) {
-    try {
-        const data = await (0, kommo_1.get)(`/leads?filter[custom_fields][${kommo_1.LEAD_FIELD.TG_USER_ID}]=${encodeURIComponent(String(telegramUserId))}&with=contacts,tags`);
-        const leads = data?._embedded?.leads ?? [];
-        return leads.find(l => l.pipeline_id === kommo_1.PIPELINE_ID) ?? leads[0] ?? null;
-    }
-    catch (err) {
-        console.error('[telegram] lead filter lookup failed:', (0, env_1.errText)(err));
-        return null;
-    }
-}
-/**
- * First contact: the lead has no Telegram User ID yet, so match through the
- * talk's contact — its Telegram chat carries source_uid == telegram user id.
- */
-async function findLeadIdViaTalks(telegramUserId) {
-    try {
-        const data = await (0, kommo_1.get)('/talks?limit=10');
-        const talks = (data?._embedded?.talks ?? [])
-            .filter(t => t.entity_type === 'lead' && t.entity_id)
-            .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
-        const seen = new Set();
-        for (const talk of talks) {
-            const contactId = talk.contact_id ?? talk._embedded?.contact?.id;
-            if (!contactId || seen.has(contactId))
-                continue;
-            seen.add(contactId);
-            const contact = await (0, kommo_1.get)(`/contacts/${contactId}?with=chats`);
-            const matched = (contact?._embedded?.chats ?? []).some(c => String(c.source_uid ?? c.external_id ?? '') === String(telegramUserId));
-            if (matched)
-                return String(talk.entity_id);
-        }
-    }
-    catch (err) {
-        console.error('[telegram] talks lookup failed:', (0, env_1.errText)(err));
-    }
-    return null;
-}
-async function findLead(telegramUserId) {
-    const byField = await findLeadByCustomField(telegramUserId);
-    if (byField)
-        return { leadId: String(byField.id), lead: byField, via: 'lead-filter' };
-    for (let attempt = 1; attempt <= 5; attempt++) {
-        const leadId = await findLeadIdViaTalks(telegramUserId);
-        if (leadId)
-            return { leadId, lead: null, via: 'talks' };
-        if (attempt < 5)
-            await sleep(2000);
-    }
-    return null;
-}
 // ── chat_member updates (channel join / leave) ────────────────────────────────
 async function handleChatMember(update) {
     const channelId = (0, env_1.requireEnv)('CHANNEL_ID');
@@ -156,42 +101,18 @@ async function handleTelegramWebhook(req, res) {
             catch (err) {
                 console.error('[telegram] forward failed:', (0, env_1.errText)(err));
             }
-            const found = await findLead(telegramUserId);
-            if (!found) {
-                console.warn('[telegram] no lead found for TG user:', telegramUserId);
-                return;
-            }
-            console.log('[telegram] lead resolved via', found.via, '| lead:', found.leadId);
-            const lead = found.lead ?? (await (0, kommo_1.get)(`/leads/${found.leadId}?with=tags`));
-            const stages = await (0, kommo_1.getStageMap)();
-            const stageName = lead ? stages[lead.status_id] : undefined;
-            const currentTag = (0, kommo_1.tagNames)(lead?._embedded?.tags);
-            // Patch Kommo lead custom fields
-            const leadFields = [
-                { field_id: kommo_1.LEAD_FIELD.TG_USER_ID, values: [{ value: Number(telegramUserId) }] },
-            ];
-            if (telegramUsername) {
-                leadFields.push({ field_id: kommo_1.LEAD_FIELD.TG_USERNAME, values: [{ value: `@${telegramUsername}` }] });
-            }
-            if (sourcePlatform) {
-                leadFields.push({ field_id: kommo_1.LEAD_FIELD.SOURCE_PLATFORM, values: [{ value: sourcePlatform }] });
-            }
-            await (0, kommo_1.patch)(`/leads/${found.leadId}`, { custom_fields_values: leadFields });
-            console.log('[telegram] Kommo lead patched:', found.leadId);
-            // Supabase: insert on first contact, otherwise patch only what changed.
-            // original_source_platform and started_at are written once and kept.
+            // The Kommo lead does not exist yet at this point — /webhook/message links
+            // the lead and contact once Kommo has created them. Here we only keep the
+            // Telegram identity and the traffic source, keyed on telegram_user_id.
             await (0, supabase_1.upsertLead)(telegramUserId, {
-                kommo_lead_id: found.leadId,
                 telegram_username: telegramUsername ? `@${telegramUsername}` : undefined,
                 source_platform: sourcePlatform,
                 original_source_platform: sourcePlatform,
                 first_name: firstName,
                 last_name: lastName,
-                current_tag: currentTag,
-                kommo_stage: stageName,
                 started_at: (0, supabase_1.nowIso)(),
             }, { onlyIfNull: ['original_source_platform', 'started_at'] });
-            console.log('[telegram] done | lead:', found.leadId, '| stage:', stageName ?? '-', '| tags:', currentTag ?? '-');
+            console.log('[telegram] row upserted | TG user:', telegramUserId);
         }
         catch (err) {
             console.error('[telegram] error:', (0, env_1.errText)(err));

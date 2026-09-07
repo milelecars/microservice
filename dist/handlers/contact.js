@@ -42,9 +42,11 @@ async function handleContactUpdate(req, res) {
                 console.warn('[contact] no lead in pipeline', kommo_1.PIPELINE_ID, 'for contact:', contactId, '- skipping');
                 return;
             }
-            const telegramUserId = (0, kommo_1.fieldValue)(lead.custom_fields_values, kommo_1.LEAD_FIELD.TG_USER_ID);
+            // Field not filled in yet — fall back to this contact's Telegram chat
+            const telegramUserId = (0, kommo_1.fieldValue)(lead.custom_fields_values, kommo_1.LEAD_FIELD.TG_USER_ID) ??
+                (await (0, kommo_1.resolveTelegramUserId)(contactId));
             if (!telegramUserId) {
-                console.warn('[contact] no Telegram User ID on lead:', lead.id, '- skipping');
+                console.warn('[contact] no Telegram User ID on lead:', lead.id, 'and no telegram chat on contact:', contactId, '- skipping');
                 return;
             }
             const tags = lead._embedded?.tags;

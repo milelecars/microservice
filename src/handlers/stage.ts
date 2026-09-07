@@ -1,6 +1,14 @@
 import { Request, Response } from 'express';
 import { errText } from '../env';
-import { LEAD_FIELD, STAGE, KommoLead, get as kommoGet, getStageMap, fieldValue } from '../kommo';
+import {
+  LEAD_FIELD,
+  STAGE,
+  KommoLead,
+  get as kommoGet,
+  getStageMap,
+  fieldValue,
+  resolveTelegramUserId,
+} from '../kommo';
 import { getLead, updateLead, nowIso, LeadRecord } from './supabase';
 
 interface WebhookLead {
@@ -40,11 +48,22 @@ export async function handleStageChange(req: Request, res: Response): Promise<vo
       console.log('[stage] lead:', leadId, '-> status:', statusId, '|', stageName ?? 'unknown stage');
 
       // Look up TG user ID from Kommo lead to update Supabase by telegram_user_id
-      const fullLead = await kommoGet<KommoLead>(`/leads/${leadId}`);
-      const telegramUserId = fieldValue(fullLead?.custom_fields_values, LEAD_FIELD.TG_USER_ID);
+      const fullLead = await kommoGet<KommoLead>(`/leads/${leadId}?with=contacts`);
+      let telegramUserId = fieldValue(fullLead?.custom_fields_values, LEAD_FIELD.TG_USER_ID);
+
+      // Field not filled in yet — fall back to the linked contact's Telegram chat
+      if (!telegramUserId) {
+        const contacts = fullLead?._embedded?.contacts ?? [];
+        const mainContact = contacts.find(c => c.is_main) ?? contacts[0];
+        if (mainContact) {
+          telegramUserId = await resolveTelegramUserId(mainContact.id);
+        } else {
+          console.warn('[stage] lead', leadId, 'has no linked contact');
+        }
+      }
 
       if (!telegramUserId) {
-        console.warn('[stage] no TG user ID on lead - skipping Supabase update');
+        console.warn('[stage] could not resolve TG user ID for lead:', leadId, '- skipping Supabase update');
         return;
       }
 

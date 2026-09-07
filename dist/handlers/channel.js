@@ -85,17 +85,8 @@ async function verifyChannel(req, res) {
             // ── Step 2: if not stored, discover from the contact's chats ──────────
             if (!telegramUserId && contactId) {
                 console.log('[channel] no stored ID - fetching chats...');
-                const contactWithChats = await (0, kommo_1.get)(`/contacts/${contactId}?with=chats`);
-                const chats = contactWithChats?._embedded?.chats ?? [];
-                // Telegram chats have origin "telegram" — source_uid IS the Telegram user ID
-                const tgChat = chats.find(c => c.origin?.toLowerCase() === 'telegram' || c.channel_type?.toLowerCase() === 'telegram') ?? chats.find(c => !!(c.source_uid ?? c.external_id));
-                if (tgChat) {
-                    telegramUserId = (tgChat.source_uid ?? tgChat.external_id ?? '').toString() || undefined;
-                    console.log('[channel] discovered telegramUserId from chat:', telegramUserId ?? '-');
-                }
-                else {
-                    console.log('[channel] no telegram chat found for contact:', contactId, '| chats:', chats.length);
-                }
+                telegramUserId = await (0, kommo_1.resolveTelegramUserId)(contactId);
+                console.log('[channel] discovered telegramUserId from chat:', telegramUserId ?? '-');
                 // ── Step 3: save discovered ID onto the LEAD (1067290 is a lead field)
                 if (telegramUserId) {
                     await (0, kommo_1.patch)(`/leads/${leadId}`, {

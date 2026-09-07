@@ -1,7 +1,31 @@
 import { Request, Response } from 'express';
 import { errText } from '../env';
-import { LEAD_FIELD, KommoLead, get as kommoGet, patch as kommoPatch, fieldValue } from '../kommo';
-import { updateLead } from './supabase';
+import {
+  LEAD_FIELD,
+  KommoCustomField,
+  KommoLead,
+  get as kommoGet,
+  patch as kommoPatch,
+  fieldValue,
+  resolveTelegramUserId,
+} from '../kommo';
+import { getLead, updateLead, LeadRecord } from './supabase';
+
+// Kommo message webhook payload (only what we read)
+interface KommoMessage {
+  type?: string;
+  text?: string;
+  entity_id?: string | number;
+  element_id?: string | number;
+  contact_id?: string | number;
+}
+
+interface MessageWebhookBody {
+  message?: {
+    add?: KommoMessage[];
+    update?: KommoMessage[];
+  };
+}
 
 // ─── Keyword → Tag mapping (last match wins) ───────────────────────────────
 const TAG_RULES: { tag: string; keywords: string[] }[] = [
@@ -48,12 +72,55 @@ function detectTag(text: string): string | null {
   return matched;
 }
 
+/**
+ * Point the Supabase row at the Kommo lead/contact this message came from, and
+ * backfill the lead's Telegram custom fields the first time we see the lead.
+ */
+async function linkLeadAndContact(
+  lead: KommoLead | null,
+  leadId: string,
+  contactId: string,
+  telegramUserId: string
+): Promise<LeadRecord | null> {
+  const row = await getLead(telegramUserId);
+
+  if (row) {
+    const changes: Partial<LeadRecord> = {};
+    if (row.kommo_lead_id !== leadId) changes.kommo_lead_id = leadId;
+    if (row.kommo_contact_id !== contactId) changes.kommo_contact_id = contactId;
+    if (Object.keys(changes).length > 0) {
+      await updateLead(telegramUserId, changes);
+      console.log('[webhook] linked | lead:', leadId, '| contact:', contactId, '| TG user:', telegramUserId);
+    }
+  } else {
+    console.warn('[webhook] no Supabase row for TG user:', telegramUserId, '- lead not linked');
+  }
+
+  // Once per lead: the Telegram fields are only written while 1067290 is empty
+  if (fieldValue(lead?.custom_fields_values, LEAD_FIELD.TG_USER_ID)) return row;
+
+  const fields: KommoCustomField[] = [
+    { field_id: LEAD_FIELD.TG_USER_ID, values: [{ value: Number(telegramUserId) }] },
+  ];
+  if (row?.telegram_username) {
+    fields.push({ field_id: LEAD_FIELD.TG_USERNAME, values: [{ value: row.telegram_username }] });
+  }
+  if (row?.source_platform) {
+    fields.push({ field_id: LEAD_FIELD.SOURCE_PLATFORM, values: [{ value: row.source_platform }] });
+  }
+
+  await kommoPatch(`/leads/${leadId}`, { custom_fields_values: fields });
+  console.log('[webhook] lead fields set | lead:', leadId, '| TG user:', telegramUserId);
+
+  return row;
+}
+
 export async function handleNewMessage(req: Request, res: Response): Promise<void> {
   res.status(200).json({ ok: true });
 
   setImmediate(async () => {
     try {
-      const body = req.body;
+      const body = req.body as MessageWebhookBody;
       console.log('[webhook] incoming payload:', JSON.stringify(body));
 
       const messages = body?.message?.add ?? body?.message?.update ?? [];
@@ -61,24 +128,42 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
       for (const msg of messages) {
         if (msg.type !== 'incoming') continue;
 
-        const leadId = msg.entity_id ?? msg.element_id;
-        const text   = msg.text ?? '';
+        const leadId    = msg.entity_id ?? msg.element_id;
+        const contactId = msg.contact_id;
+        const text      = msg.text ?? '';
 
-        console.log('[webhook] incoming message | lead:', leadId, '| text:', text);
+        console.log('[webhook] incoming message | lead:', leadId, '| contact:', contactId, '| text:', text);
 
-        if (!leadId || !text) continue;
-
-        const tag = detectTag(text);
-        if (!tag) {
-          console.log('[webhook] no keyword match');
-          continue;
-        }
-
-        console.log('[webhook] keyword matched → tag:', tag);
+        if (!leadId) continue;
 
         try {
-          // Fetch current tags to get IDs for deletion
+          // Fetch once — used for the link step and for the tag replacement
           const lead = await kommoGet<KommoLead>(`/leads/${leadId}?with=tags`);
+
+          // ── Link the row to this lead/contact ─────────────────────────────
+          let telegramUserId: string | undefined;
+          if (contactId) {
+            telegramUserId = await resolveTelegramUserId(contactId);
+            if (telegramUserId) {
+              await linkLeadAndContact(lead, String(leadId), String(contactId), telegramUserId);
+            } else {
+              console.warn('[webhook] could not resolve TG user ID from contact:', contactId);
+            }
+          } else {
+            console.warn('[webhook] message has no contact_id - cannot link lead:', leadId);
+          }
+
+          // ── Keyword tagging ───────────────────────────────────────────────
+          if (!text) continue;
+
+          const tag = detectTag(text);
+          if (!tag) {
+            console.log('[webhook] no keyword match');
+            continue;
+          }
+
+          console.log('[webhook] keyword matched → tag:', tag);
+
           const currentTags = lead?._embedded?.tags ?? [];
           console.log('[webhook] tags before replace:', currentTags.map(t => `${t.name}(${t.id})`).join(', ') || 'none');
 
@@ -93,16 +178,16 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
           await kommoPatch(`/leads/${leadId}`, patchBody);
           console.log('[webhook] tag applied:', tag, '-> lead:', leadId);
 
-          // Sync tag to Supabase — look up TG user ID from the lead
-          const tgUserId = fieldValue(lead?.custom_fields_values, LEAD_FIELD.TG_USER_ID);
+          // Sync tag to Supabase — resolved ID first, lead field as fallback
+          const tgUserId = telegramUserId ?? fieldValue(lead?.custom_fields_values, LEAD_FIELD.TG_USER_ID);
           if (tgUserId) {
             await updateLead(Number(tgUserId), { current_tag: tag });
           } else {
-            console.warn('[webhook] no TG user ID on lead — skipping Supabase tag update');
+            console.warn('[webhook] no TG user ID for lead:', leadId, '— skipping Supabase tag update');
           }
 
-        } catch (patchErr) {
-          console.error('[webhook] tag failed:', errText(patchErr));
+        } catch (msgErr) {
+          console.error('[webhook] message handling failed:', errText(msgErr));
         }
       }
     } catch (err) {

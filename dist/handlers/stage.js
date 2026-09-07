@@ -21,10 +21,21 @@ async function handleStageChange(req, res) {
             const stageName = stages[statusId];
             console.log('[stage] lead:', leadId, '-> status:', statusId, '|', stageName ?? 'unknown stage');
             // Look up TG user ID from Kommo lead to update Supabase by telegram_user_id
-            const fullLead = await (0, kommo_1.get)(`/leads/${leadId}`);
-            const telegramUserId = (0, kommo_1.fieldValue)(fullLead?.custom_fields_values, kommo_1.LEAD_FIELD.TG_USER_ID);
+            const fullLead = await (0, kommo_1.get)(`/leads/${leadId}?with=contacts`);
+            let telegramUserId = (0, kommo_1.fieldValue)(fullLead?.custom_fields_values, kommo_1.LEAD_FIELD.TG_USER_ID);
+            // Field not filled in yet — fall back to the linked contact's Telegram chat
             if (!telegramUserId) {
-                console.warn('[stage] no TG user ID on lead - skipping Supabase update');
+                const contacts = fullLead?._embedded?.contacts ?? [];
+                const mainContact = contacts.find(c => c.is_main) ?? contacts[0];
+                if (mainContact) {
+                    telegramUserId = await (0, kommo_1.resolveTelegramUserId)(mainContact.id);
+                }
+                else {
+                    console.warn('[stage] lead', leadId, 'has no linked contact');
+                }
+            }
+            if (!telegramUserId) {
+                console.warn('[stage] could not resolve TG user ID for lead:', leadId, '- skipping Supabase update');
                 return;
             }
             const changes = { kommo_lead_id: leadId };

@@ -7,6 +7,7 @@ exports.CONTACT_FIELD = exports.LEAD_FIELD = exports.STAGE = exports.PIPELINE_ID
 exports.get = get;
 exports.patch = patch;
 exports.getStageMap = getStageMap;
+exports.resolveTelegramUserId = resolveTelegramUserId;
 exports.fieldValue = fieldValue;
 exports.tagNames = tagNames;
 exports.hasTag = hasTag;
@@ -87,6 +88,30 @@ async function getStageMap() {
         console.error('[kommo] failed to load stage map:', (0, env_1.errText)(err));
     }
     return stageMap;
+}
+// ── Telegram identity ─────────────────────────────────────────────────────────
+/**
+ * Discover the Telegram user id from a contact's chats — a Telegram chat's
+ * source_uid IS the Telegram user id. Returns undefined when the contact has
+ * no Telegram chat yet.
+ */
+async function resolveTelegramUserId(contactId) {
+    try {
+        const contact = await get(`/contacts/${contactId}?with=chats`);
+        const chats = contact?._embedded?.chats ?? [];
+        const tgChat = chats.find(c => c.origin?.toLowerCase() === 'telegram' || c.channel_type?.toLowerCase() === 'telegram') ??
+            chats.find(c => !!(c.source_uid ?? c.external_id));
+        if (!tgChat) {
+            console.log('[kommo] no telegram chat for contact:', contactId, '| chats:', chats.length);
+            return undefined;
+        }
+        const uid = String(tgChat.source_uid ?? tgChat.external_id ?? '').trim();
+        return uid.length > 0 ? uid : undefined;
+    }
+    catch (err) {
+        console.error('[kommo] resolveTelegramUserId failed for contact:', contactId, '|', (0, env_1.errText)(err));
+        return undefined;
+    }
 }
 // ── Field helpers ─────────────────────────────────────────────────────────────
 /** First value of a custom field, as a trimmed string. */
