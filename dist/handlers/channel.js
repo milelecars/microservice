@@ -6,29 +6,46 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.verifyChannel = verifyChannel;
 const axios_1 = __importDefault(require("axios"));
 const callback_1 = require("../callback");
-const KOMMO_BASE = 'https://fahadriazex1.kommo.com/api/v4';
-async function kommo(path, token) {
-    const r = await axios_1.default.get(`${KOMMO_BASE}${path}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 10000,
+const env_1 = require("../env");
+const kommo_1 = require("../kommo");
+const supabase_1 = require("./supabase");
+async function syncJoined(telegramUserId) {
+    const existing = await (0, supabase_1.getLead)(telegramUserId);
+    if (!existing) {
+        console.warn('[channel] no Supabase row for TG user:', telegramUserId, '- skipping sync');
+        return;
+    }
+    const changes = { in_channel: true };
+    if (!existing.joined_at)
+        changes.joined_at = (0, supabase_1.nowIso)();
+    await (0, supabase_1.updateLead)(telegramUserId, changes);
+}
+async function syncNotJoined(telegramUserId) {
+    const existing = await (0, supabase_1.getLead)(telegramUserId);
+    if (!existing) {
+        console.warn('[channel] no Supabase row for TG user:', telegramUserId, '- skipping sync');
+        return;
+    }
+    await (0, supabase_1.updateLead)(telegramUserId, {
+        in_channel: false,
+        join_check_failures: (existing.join_check_failures ?? 0) + 1,
     });
-    return r.data;
 }
 async function verifyChannel(req, res) {
     const { return_url } = req.body;
     const rawData = req.body?.data;
-    let data = rawData;
+    let data;
     if (typeof rawData === 'string') {
         try {
             data = JSON.parse(rawData);
         }
         catch (e) {
-            console.error('[channel] failed to parse body.data JSON', {
-                error: e?.message,
-                rawDataPreview: rawData.slice(0, 300),
-            });
+            console.error('[channel] failed to parse body.data JSON', { error: (0, env_1.errText)(e) });
             data = undefined;
         }
+    }
+    else {
+        data = rawData;
     }
     const leadId = data?.lead_id;
     console.log('[channel] received', {
@@ -57,51 +74,36 @@ async function verifyChannel(req, res) {
                 await (0, callback_1.resumeBot)(return_url, 'error', kommoToken, 'Missing lead_id');
                 return;
             }
-            // ── Step 1: check if Telegram User ID already stored ──────────────────
-            let telegramUserId;
-            let contactId;
-            const lead = await kommo(`/leads/${leadId}?with=contacts`, kommoToken);
+            // ── Step 1: check if Telegram User ID already stored on the lead ───────
+            const lead = await (0, kommo_1.get)(`/leads/${leadId}?with=contacts`);
             const contacts = lead?._embedded?.contacts ?? [];
-            const mainContact = contacts.find((c) => c.is_main) ?? contacts[0];
-            contactId = mainContact?.id;
+            const mainContact = contacts.find(c => c.is_main) ?? contacts[0];
+            const contactId = mainContact?.id;
             console.log('[channel] contactId:', contactId);
-            if (contactId) {
-                const lead = await kommo(`/leads/${leadId}`, kommoToken);
-                const fields = lead?.custom_fields_values ?? [];
-                const tgField = fields.find((f) => f.field_id === 1067290);
-                telegramUserId = tgField?.values?.[0]?.value?.toString();
-                console.log('[channel] stored telegramUserId from lead field:', telegramUserId);
-            }
-            // ── Step 2: if not stored, discover from chats ────────────────────────
+            let telegramUserId = (0, kommo_1.fieldValue)(lead?.custom_fields_values, kommo_1.LEAD_FIELD.TG_USER_ID);
+            console.log('[channel] stored telegramUserId from lead field:', telegramUserId ?? '-');
+            // ── Step 2: if not stored, discover from the contact's chats ──────────
             if (!telegramUserId && contactId) {
-                console.log('[channel] no stored ID — fetching chats...');
-                // GET /contacts/{id}?with=chats gives chat list with source_uid
-                const contactWithChats = await kommo(`/contacts/${contactId}?with=chats`, kommoToken);
-                console.log('[channel] contact chats raw:', JSON.stringify(contactWithChats?._embedded?.chats));
+                console.log('[channel] no stored ID - fetching chats...');
+                const contactWithChats = await (0, kommo_1.get)(`/contacts/${contactId}?with=chats`);
                 const chats = contactWithChats?._embedded?.chats ?? [];
                 // Telegram chats have origin "telegram" — source_uid IS the Telegram user ID
-                const tgChat = chats.find((c) => c.origin?.toLowerCase?.() === 'telegram' ||
-                    c.channel_type?.toLowerCase?.() === 'telegram');
+                const tgChat = chats.find(c => c.origin?.toLowerCase() === 'telegram' || c.channel_type?.toLowerCase() === 'telegram') ?? chats.find(c => !!(c.source_uid ?? c.external_id));
                 if (tgChat) {
-                    // source_uid or external_id holds the real Telegram user ID
-                    telegramUserId = (tgChat.source_uid ?? tgChat.external_id ?? '').toString();
-                    console.log('[channel] discovered telegramUserId from chat:', telegramUserId, 'chat object:', JSON.stringify(tgChat));
+                    telegramUserId = (tgChat.source_uid ?? tgChat.external_id ?? '').toString() || undefined;
+                    console.log('[channel] discovered telegramUserId from chat:', telegramUserId ?? '-');
                 }
                 else {
-                    // Log all chats so we can see what fields are available
-                    console.log('[channel] no telegram chat found. all chats:', JSON.stringify(chats));
+                    console.log('[channel] no telegram chat found for contact:', contactId, '| chats:', chats.length);
                 }
-                // ── Step 3: save discovered ID to custom field ─────────────────────
-                if (telegramUserId && contactId) {
-                    await axios_1.default.patch(`${KOMMO_BASE}/contacts/${contactId}`, {
+                // ── Step 3: save discovered ID onto the LEAD (1067290 is a lead field)
+                if (telegramUserId) {
+                    await (0, kommo_1.patch)(`/leads/${leadId}`, {
                         custom_fields_values: [
-                            { field_id: 1067290, values: [{ value: telegramUserId }] }
-                        ]
-                    }, {
-                        headers: { Authorization: `Bearer ${kommoToken}` },
-                        timeout: 10000,
+                            { field_id: kommo_1.LEAD_FIELD.TG_USER_ID, values: [{ value: Number(telegramUserId) }] },
+                        ],
                     });
-                    console.log('[channel] saved telegramUserId to contact field:', telegramUserId);
+                    console.log('[channel] saved telegramUserId to lead field:', telegramUserId);
                 }
             }
             if (!telegramUserId) {
@@ -110,18 +112,19 @@ async function verifyChannel(req, res) {
                 return;
             }
             // ── Step 4: check channel membership ──────────────────────────────────
-            const tgResp = await axios_1.default.get('https://api.telegram.org/bot' + botToken + '/getChatMember', {
-                params: { chat_id: channelId, user_id: telegramUserId },
-                timeout: 10000,
-            });
+            const tgResp = await axios_1.default.get('https://api.telegram.org/bot' + botToken + '/getChatMember', { params: { chat_id: channelId, user_id: telegramUserId }, timeout: 10000 });
             const status = tgResp.data?.result?.status;
             console.log('[channel] getChatMember status:', status, 'for user:', telegramUserId);
-            const isJoined = ['member', 'administrator', 'creator'].includes(status);
+            const isJoined = ['member', 'administrator', 'creator'].includes(status ?? '');
+            if (isJoined)
+                await syncJoined(telegramUserId);
+            else
+                await syncNotJoined(telegramUserId);
             await (0, callback_1.resumeBot)(return_url, isJoined ? 'joined' : 'not_joined', kommoToken, isJoined ? 'Channel membership confirmed' : 'User has not joined the channel');
         }
         catch (err) {
-            console.error('[channel] error:', err?.response?.data ?? err.message);
-            await (0, callback_1.resumeBot)(return_url, 'error', kommoToken, err?.response?.data?.detail ?? err.message);
+            console.error('[channel] error:', (0, env_1.errText)(err));
+            await (0, callback_1.resumeBot)(return_url, 'error', kommoToken, (0, env_1.errText)(err));
         }
     });
 }

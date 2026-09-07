@@ -5,43 +5,119 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleTelegramWebhook = handleTelegramWebhook;
 const axios_1 = __importDefault(require("axios"));
+const env_1 = require("../env");
+const kommo_1 = require("../kommo");
 const supabase_1 = require("./supabase");
-const KOMMO_BASE = 'https://fahadriazex1.kommo.com/api/v4';
-const KOMMO_TOKEN = process.env.KOMMO_TOKEN;
-const FIELD_TG_USER_ID = 1067290;
-const FIELD_TG_USERNAME = 1104292;
-const FIELD_SOURCE_PLATFORM = 1094948;
-const KOMMO_TG_WEBHOOK = 'https://amojo.amocrm.com/~external/hooks/telegram?t=8593034950:AAG7lU1tK8XJWTIbVSHyeFHFwggzDiJD8Rk&';
 const SOURCE_MAP = {
-    tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube', facebook: 'Facebook', direct: 'Direct',
+    instagram: 'Instagram',
+    facebook: 'Facebook',
+    tiktok: 'TikTok',
+    youtube: 'YouTube',
+    direct: 'Direct',
 };
-// Cache stage map after first load
-let stageMap = {};
-let stageMapLoaded = false;
-async function getStageMap() {
-    if (stageMapLoaded)
-        return stageMap;
+const IN_CHANNEL_STATUSES = ['member', 'administrator', 'creator'];
+const OUT_OF_CHANNEL_STATUSES = ['left', 'kicked'];
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+// ── Lead lookup ───────────────────────────────────────────────────────────────
+/** Preferred path: the lead already carries the Telegram User ID custom field. */
+async function findLeadByCustomField(telegramUserId) {
     try {
-        const resp = await axios_1.default.get(`${KOMMO_BASE}/leads/pipelines`, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
-        for (const pipeline of resp.data?._embedded?.pipelines ?? []) {
-            for (const stage of pipeline._embedded?.statuses ?? []) {
-                stageMap[stage.id] = stage.name;
-            }
-        }
-        stageMapLoaded = true;
-        console.log('[telegram] stage map loaded:', JSON.stringify(stageMap));
+        const data = await (0, kommo_1.get)(`/leads?filter[custom_fields][${kommo_1.LEAD_FIELD.TG_USER_ID}]=${encodeURIComponent(String(telegramUserId))}&with=contacts,tags`);
+        const leads = data?._embedded?.leads ?? [];
+        return leads.find(l => l.pipeline_id === kommo_1.PIPELINE_ID) ?? leads[0] ?? null;
     }
     catch (err) {
-        console.error('[telegram] failed to load stage map:', err.message);
+        console.error('[telegram] lead filter lookup failed:', (0, env_1.errText)(err));
+        return null;
     }
-    return stageMap;
 }
+/**
+ * First contact: the lead has no Telegram User ID yet, so match through the
+ * talk's contact — its Telegram chat carries source_uid == telegram user id.
+ */
+async function findLeadIdViaTalks(telegramUserId) {
+    try {
+        const data = await (0, kommo_1.get)('/talks?limit=10');
+        const talks = (data?._embedded?.talks ?? [])
+            .filter(t => t.entity_type === 'lead' && t.entity_id)
+            .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
+        const seen = new Set();
+        for (const talk of talks) {
+            const contactId = talk.contact_id ?? talk._embedded?.contact?.id;
+            if (!contactId || seen.has(contactId))
+                continue;
+            seen.add(contactId);
+            const contact = await (0, kommo_1.get)(`/contacts/${contactId}?with=chats`);
+            const matched = (contact?._embedded?.chats ?? []).some(c => String(c.source_uid ?? c.external_id ?? '') === String(telegramUserId));
+            if (matched)
+                return String(talk.entity_id);
+        }
+    }
+    catch (err) {
+        console.error('[telegram] talks lookup failed:', (0, env_1.errText)(err));
+    }
+    return null;
+}
+async function findLead(telegramUserId) {
+    const byField = await findLeadByCustomField(telegramUserId);
+    if (byField)
+        return { leadId: String(byField.id), lead: byField, via: 'lead-filter' };
+    for (let attempt = 1; attempt <= 5; attempt++) {
+        const leadId = await findLeadIdViaTalks(telegramUserId);
+        if (leadId)
+            return { leadId, lead: null, via: 'talks' };
+        if (attempt < 5)
+            await sleep(2000);
+    }
+    return null;
+}
+// ── chat_member updates (channel join / leave) ────────────────────────────────
+async function handleChatMember(update) {
+    const channelId = (0, env_1.requireEnv)('CHANNEL_ID');
+    const chatId = update.chat?.id;
+    if (String(chatId) !== String(channelId)) {
+        console.log('[telegram] chat_member for other chat:', chatId, '- skipping');
+        return;
+    }
+    const status = update.new_chat_member?.status;
+    const telegramUserId = update.new_chat_member?.user?.id ?? update.from?.id;
+    if (!telegramUserId || !status) {
+        console.warn('[telegram] chat_member without user id or status - skipping');
+        return;
+    }
+    const existing = await (0, supabase_1.getLead)(telegramUserId);
+    if (!existing) {
+        console.warn('[telegram] chat_member for unknown TG user:', telegramUserId, '| status:', status, '- skipping');
+        return;
+    }
+    const changes = {};
+    if (IN_CHANNEL_STATUSES.includes(status)) {
+        changes.in_channel = true;
+        if (!existing.joined_at)
+            changes.joined_at = (0, supabase_1.nowIso)();
+    }
+    else if (OUT_OF_CHANNEL_STATUSES.includes(status)) {
+        changes.in_channel = false;
+        changes.left_at = (0, supabase_1.nowIso)();
+    }
+    else {
+        console.log('[telegram] chat_member status ignored:', status, '| TG user:', telegramUserId);
+        return;
+    }
+    await (0, supabase_1.updateLead)(telegramUserId, changes);
+    console.log('[telegram] chat_member', status, '| TG user:', telegramUserId);
+}
+// ── Main handler ──────────────────────────────────────────────────────────────
 async function handleTelegramWebhook(req, res) {
     res.status(200).json({ ok: true });
+    const body = req.body;
     setImmediate(async () => {
         try {
-            const body = req.body;
-            console.log('[telegram] incoming update:', JSON.stringify(body));
+            // chat_member updates are ours alone - Kommo must not see them
+            if (body?.chat_member) {
+                await handleChatMember(body.chat_member);
+                return;
+            }
             const msg = body?.message ?? body?.edited_message;
             const from = msg?.from ?? body?.callback_query?.from;
             const telegramUserId = from?.id;
@@ -50,7 +126,7 @@ async function handleTelegramWebhook(req, res) {
             const lastName = from?.last_name;
             const chatId = msg?.chat?.id ?? from?.id;
             if (!telegramUserId || !chatId) {
-                console.warn('[telegram] no from.id — skipping');
+                console.warn('[telegram] no from.id - skipping');
                 return;
             }
             const msgText = msg?.text ?? '';
@@ -58,91 +134,63 @@ async function handleTelegramWebhook(req, res) {
             let sourcePlatform;
             if (msgText.startsWith('/start ')) {
                 const param = msgText.replace('/start ', '').trim().toLowerCase();
-                sourcePlatform = SOURCE_MAP[param] ?? param;
+                if (param)
+                    sourcePlatform = SOURCE_MAP[param] ?? param;
             }
-            // Forward to Kommo
+            console.log('[telegram] update | TG user:', telegramUserId, '| start:', isStartCommand, '| source:', sourcePlatform ?? '-');
+            // Forward to Kommo (the hook URL carries the bot token - never log it)
             const forwardBody = isStartCommand
                 ? { ...body, message: { ...msg, text: 'Hi', entities: undefined } }
                 : body;
-            axios_1.default.post(KOMMO_TG_WEBHOOK, forwardBody, {
-                headers: { 'Content-Type': 'application/json' }, timeout: 10000,
-            })
-                .then(() => console.log('[telegram] forwarded to Kommo ✓'))
-                .catch(err => console.error('[telegram] forward failed:', err.message));
-            await new Promise(r => setTimeout(r, 3000));
-            // Find lead via talks
-            const talksResp = await axios_1.default.get(`${KOMMO_BASE}/talks?limit=5`, { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000 });
-            const talks = talksResp.data?._embedded?.talks ?? [];
-            const activeTalk = talks
-                .filter(t => t.origin === 'telegram' && t.entity_id && t.entity_type === 'lead')
-                .sort((a, b) => b.created_at - a.created_at)[0];
-            if (!activeTalk) {
-                console.warn('[telegram] no active talk found');
+            try {
+                await axios_1.default.post((0, env_1.requireEnv)('KOMMO_TG_WEBHOOK'), forwardBody, {
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 10000,
+                });
+                console.log('[telegram] forwarded to Kommo OK');
+            }
+            catch (err) {
+                console.error('[telegram] forward failed:', (0, env_1.errText)(err));
+            }
+            const found = await findLead(telegramUserId);
+            if (!found) {
+                console.warn('[telegram] no lead found for TG user:', telegramUserId);
                 return;
             }
-            const leadId = String(activeTalk.entity_id);
-            // Fetch lead for stage + tags
-            const [leadResp, stages] = await Promise.all([
-                axios_1.default.get(`${KOMMO_BASE}/leads/${leadId}?with=tags`, {
-                    headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000,
-                }),
-                getStageMap(),
-            ]);
-            const statusId = leadResp.data?.status_id;
-            const stageName = stages[statusId];
-            const existingTags = leadResp.data?._embedded?.tags ?? [];
-            const currentTag = existingTags.map((t) => t.name).join(', ') || undefined;
-            // Patch Kommo custom fields
+            console.log('[telegram] lead resolved via', found.via, '| lead:', found.leadId);
+            const lead = found.lead ?? (await (0, kommo_1.get)(`/leads/${found.leadId}?with=tags`));
+            const stages = await (0, kommo_1.getStageMap)();
+            const stageName = lead ? stages[lead.status_id] : undefined;
+            const currentTag = (0, kommo_1.tagNames)(lead?._embedded?.tags);
+            // Patch Kommo lead custom fields
             const leadFields = [
-                { field_id: FIELD_TG_USER_ID, values: [{ value: Number(telegramUserId) }] },
+                { field_id: kommo_1.LEAD_FIELD.TG_USER_ID, values: [{ value: Number(telegramUserId) }] },
             ];
-            if (telegramUsername)
-                leadFields.push({ field_id: FIELD_TG_USERNAME, values: [{ value: `@${telegramUsername}` }] });
-            if (sourcePlatform)
-                leadFields.push({ field_id: FIELD_SOURCE_PLATFORM, values: [{ value: sourcePlatform }] });
-            await axios_1.default.patch(`${KOMMO_BASE}/leads/${leadId}`, { custom_fields_values: leadFields }, {
-                headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10000,
-            });
-            console.log('[telegram] Kommo lead patched');
-            // ── Supabase: insert or update only changed fields (keyed by telegram_user_id) ─
-            const existing = await (0, supabase_1.getLead)(Number(telegramUserId));
-            if (!existing) {
-                // New user — insert full record
-                await (0, supabase_1.insertLead)({
-                    kommo_lead_id: leadId,
-                    telegram_user_id: Number(telegramUserId),
-                    telegram_username: telegramUsername ? `@${telegramUsername}` : undefined,
-                    source_platform: sourcePlatform,
-                    first_name: firstName,
-                    last_name: lastName,
-                    current_tag: currentTag,
-                    kommo_stage: stageName,
-                });
+            if (telegramUsername) {
+                leadFields.push({ field_id: kommo_1.LEAD_FIELD.TG_USERNAME, values: [{ value: `@${telegramUsername}` }] });
             }
-            else {
-                // Returning user — update only fields that changed
-                const changes = {};
-                // Always update kommo_lead_id in case they have a new conversation
-                if (existing.kommo_lead_id !== leadId)
-                    changes.kommo_lead_id = leadId;
-                if (telegramUsername && existing.telegram_username !== `@${telegramUsername}`)
-                    changes.telegram_username = `@${telegramUsername}`;
-                if (sourcePlatform && existing.source_platform !== sourcePlatform)
-                    changes.source_platform = sourcePlatform;
-                if (firstName && existing.first_name !== firstName)
-                    changes.first_name = firstName;
-                if (lastName && existing.last_name !== lastName)
-                    changes.last_name = lastName;
-                if (currentTag && existing.current_tag !== currentTag)
-                    changes.current_tag = currentTag;
-                if (stageName && existing.kommo_stage !== stageName)
-                    changes.kommo_stage = stageName;
-                await (0, supabase_1.updateLead)(Number(telegramUserId), changes);
+            if (sourcePlatform) {
+                leadFields.push({ field_id: kommo_1.LEAD_FIELD.SOURCE_PLATFORM, values: [{ value: sourcePlatform }] });
             }
-            console.log('[telegram] ✓ done | lead:', leadId, '| stage:', stageName, '| tags:', currentTag);
+            await (0, kommo_1.patch)(`/leads/${found.leadId}`, { custom_fields_values: leadFields });
+            console.log('[telegram] Kommo lead patched:', found.leadId);
+            // Supabase: insert on first contact, otherwise patch only what changed.
+            // original_source_platform and started_at are written once and kept.
+            await (0, supabase_1.upsertLead)(telegramUserId, {
+                kommo_lead_id: found.leadId,
+                telegram_username: telegramUsername ? `@${telegramUsername}` : undefined,
+                source_platform: sourcePlatform,
+                original_source_platform: sourcePlatform,
+                first_name: firstName,
+                last_name: lastName,
+                current_tag: currentTag,
+                kommo_stage: stageName,
+                started_at: (0, supabase_1.nowIso)(),
+            }, { onlyIfNull: ['original_source_platform', 'started_at'] });
+            console.log('[telegram] done | lead:', found.leadId, '| stage:', stageName ?? '-', '| tags:', currentTag ?? '-');
         }
         catch (err) {
-            console.error('[telegram] error:', err?.response?.data ?? err.message);
+            console.error('[telegram] error:', (0, env_1.errText)(err));
         }
     });
 }

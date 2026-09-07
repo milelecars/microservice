@@ -4,8 +4,11 @@ import { verifyRegistered } from './handlers/registered';
 import { verifyDeposited } from './handlers/deposited';
 import { handleNewMessage } from './handlers/webhook';
 import { handleTelegramWebhook } from './handlers/telegram';
-import { handleStageChange } from './handlers/stage';   
+import { handleStageChange } from './handlers/stage';
+import { handleContactUpdate } from './handlers/contact';
+import { assertEnv } from './env';
 
+assertEnv();
 
 const app = express();
 
@@ -59,6 +62,7 @@ app.post('/verify/deposited', verifyDeposited);
 
 app.post('/webhook/message', handleNewMessage);
 app.post('/webhook/telegram', handleTelegramWebhook);
+app.post('/webhook/contact', handleContactUpdate);
 
 app.get('/verify/channel', (_req: Request, res: Response) => {
   res.status(405).json({ ok: false, error: 'Method Not Allowed. Use POST /verify/channel' });
@@ -73,7 +77,16 @@ app.get('/verify/deposited', (_req: Request, res: Response) => {
 app.get('/', (_req: Request, res: Response) => {
   res.status(200).json({
     service: 'kommo-verify',
-    routes: ['/health', '/verify/channel', '/verify/registered', '/verify/deposited'],
+    routes: [
+      '/health',
+      '/verify/channel',
+      '/verify/registered',
+      '/verify/deposited',
+      '/webhook/telegram',
+      '/webhook/stage',
+      '/webhook/contact',
+      '/webhook/message',
+    ],
   });
 });
 

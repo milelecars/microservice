@@ -1,9 +1,7 @@
 import { Request, Response } from 'express';
-import axios from 'axios';
+import { errText } from '../env';
+import { LEAD_FIELD, KommoLead, get as kommoGet, patch as kommoPatch, fieldValue } from '../kommo';
 import { updateLead } from './supabase';
-
-const KOMMO_BASE  = 'https://fahadriazex1.kommo.com/api/v4';
-const KOMMO_TOKEN = process.env.KOMMO_TOKEN!;
 
 // ─── Keyword → Tag mapping (last match wins) ───────────────────────────────
 const TAG_RULES: { tag: string; keywords: string[] }[] = [
@@ -80,42 +78,35 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
 
         try {
           // Fetch current tags to get IDs for deletion
-          const leadResp = await axios.get(
-            `${KOMMO_BASE}/leads/${leadId}?with=tags`,
-            { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
-          );
-          const currentTags: { id: number; name: string }[] = leadResp.data?._embedded?.tags ?? [];
+          const lead = await kommoGet<KommoLead>(`/leads/${leadId}?with=tags`);
+          const currentTags = lead?._embedded?.tags ?? [];
           console.log('[webhook] tags before replace:', currentTags.map(t => `${t.name}(${t.id})`).join(', ') || 'none');
 
           // Delete ALL existing tags, add only the new keyword tag
-          const patchBody: any = { tags_to_add: [{ name: tag }] };
+          const patchBody: { tags_to_add: { name: string }[]; tags_to_delete?: number[] } = {
+            tags_to_add: [{ name: tag }],
+          };
           if (currentTags.length > 0) {
             patchBody.tags_to_delete = currentTags.map(t => t.id);
           }
-          console.log('[webhook] patch payload:', JSON.stringify(patchBody));
 
-          const patchResp = await axios.patch(
-            `${KOMMO_BASE}/leads/${leadId}`,
-            patchBody,
-            { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
-          );
-          console.log('[webhook] ✓ tag applied:', tag, '→ lead:', leadId, '| status:', patchResp.status);
+          await kommoPatch(`/leads/${leadId}`, patchBody);
+          console.log('[webhook] tag applied:', tag, '-> lead:', leadId);
 
           // Sync tag to Supabase — look up TG user ID from the lead
-          const tgUserId = leadResp.data?.custom_fields_values
-            ?.find((f: any) => f.field_id === 1067290)?.values?.[0]?.value;
+          const tgUserId = fieldValue(lead?.custom_fields_values, LEAD_FIELD.TG_USER_ID);
           if (tgUserId) {
             await updateLead(Number(tgUserId), { current_tag: tag });
           } else {
             console.warn('[webhook] no TG user ID on lead — skipping Supabase tag update');
           }
 
-        } catch (patchErr: any) {
-          console.error('[webhook] tag failed:', JSON.stringify(patchErr?.response?.data));
+        } catch (patchErr) {
+          console.error('[webhook] tag failed:', errText(patchErr));
         }
       }
-    } catch (err: any) {
-      console.error('[webhook] error:', err?.response?.data ?? err.message);
+    } catch (err) {
+      console.error('[webhook] error:', errText(err));
     }
   });
 }

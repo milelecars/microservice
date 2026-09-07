@@ -1,100 +1,68 @@
 import { Request, Response } from 'express';
-import axios from 'axios';
-import { updateLead } from './supabase';
+import { errText } from '../env';
+import { LEAD_FIELD, STAGE, KommoLead, get as kommoGet, getStageMap, fieldValue } from '../kommo';
+import { getLead, updateLead, nowIso, LeadRecord } from './supabase';
 
-const KOMMO_BASE  = 'https://fahadriazex1.kommo.com/api/v4';
-const KOMMO_TOKEN = process.env.KOMMO_TOKEN!;
-
-// Cache stage map
-let stageMap: Record<number, string> = {};
-let stageMapLoaded = false;
-
-async function getStageMap(): Promise<Record<number, string>> {
-  if (stageMapLoaded) return stageMap;
-  try {
-    const resp = await axios.get(
-      `${KOMMO_BASE}/leads/pipelines`,
-      { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
-    );
-    for (const pipeline of resp.data?._embedded?.pipelines ?? []) {
-      for (const stage of pipeline._embedded?.statuses ?? []) {
-        stageMap[stage.id] = stage.name;
-      }
-    }
-    stageMapLoaded = true;
-  } catch (err: any) {
-    console.error('[stage] failed to load stage map:', err.message);
-  }
-  return stageMap;
+interface WebhookLead {
+  id?: string | number;
+  status_id?: string | number;
 }
 
-// This route is called by Kommo Digital Pipeline webhook on stage change
+interface StageWebhookBody {
+  leads?: {
+    add?: WebhookLead[];
+    update?: WebhookLead[];
+    status?: WebhookLead[];
+  };
+}
+
+// This route is called by Kommo on lead status change
 export async function handleStageChange(req: Request, res: Response): Promise<void> {
   res.status(200).json({ ok: true });
 
+  const body = req.body as StageWebhookBody;
+
   setImmediate(async () => {
     try {
-      const body = req.body;
-      console.log('[stage] incoming payload:', JSON.stringify(body));
+      const lead = body?.leads?.status?.[0] ?? body?.leads?.add?.[0] ?? body?.leads?.update?.[0];
 
-      // Kommo pipeline webhook sends leads.add or leads.update
-      const lead =
-        body?.leads?.add?.[0] ??
-        body?.leads?.update?.[0];
-
-      if (!lead) {
-        console.warn('[stage] no lead in payload — skipping');
+      if (!lead?.id) {
+        console.warn('[stage] no lead in payload - skipping');
         return;
       }
 
-      const leadId   = String(lead.id);
+      const leadId = String(lead.id);
       const statusId = Number(lead.status_id);
 
-      const stages   = await getStageMap();
+      const stages = await getStageMap();
       const stageName = stages[statusId];
 
-      if (!stageName) {
-        console.warn('[stage] unknown status_id:', statusId);
-        return;
-      }
-
-      console.log('[stage] lead:', leadId, '→ stage:', stageName);
+      console.log('[stage] lead:', leadId, '-> status:', statusId, '|', stageName ?? 'unknown stage');
 
       // Look up TG user ID from Kommo lead to update Supabase by telegram_user_id
-      const leadResp = await axios.get(
-        `${KOMMO_BASE}/leads/${leadId}`,
-        { headers: { Authorization: `Bearer ${KOMMO_TOKEN}` }, timeout: 10_000 }
-      );
-      const tgUserId = leadResp.data?.custom_fields_values
-        ?.find((f: any) => f.field_id === 1067290)?.values?.[0]?.value;
+      const fullLead = await kommoGet<KommoLead>(`/leads/${leadId}`);
+      const telegramUserId = fieldValue(fullLead?.custom_fields_values, LEAD_FIELD.TG_USER_ID);
 
-      if (!tgUserId) {
-        console.warn('[stage] no TG user ID on lead — skipping Supabase update');
+      if (!telegramUserId) {
+        console.warn('[stage] no TG user ID on lead - skipping Supabase update');
         return;
       }
 
-      // Base update — always sync stage
-      const changes: any = { kommo_stage: stageName, kommo_lead_id: leadId };
+      const changes: Partial<LeadRecord> = { kommo_lead_id: leadId };
+      if (stageName) changes.kommo_stage = stageName;
 
-      // Set original_source_platform ONCE when lead reaches Pending Registration
-      const PENDING_STAGE = 'pending registeration'; // match your exact Kommo stage name (case-insensitive)
-      if (stageName.toLowerCase() === PENDING_STAGE) {
-        // Fetch current Supabase record to check if original_source_platform already set
-        const { getLead } = await import('./supabase');
-        const existing = await getLead(Number(tgUserId));
-
-        if (existing && !existing.original_source_platform && existing.source_platform) {
-          changes.original_source_platform = existing.source_platform;
-          console.log('[stage] setting original_source_platform:', existing.source_platform, '→ TG user:', tgUserId);
-        } else {
-          console.log('[stage] original_source_platform already set or no source — skipping');
-        }
+      // Stage-driven milestones, matched on status id (names change in Kommo)
+      if (statusId === STAGE.JOINED_CHANNEL) {
+        changes.in_channel = true;
+        const existing = await getLead(telegramUserId);
+        if (!existing?.joined_at) changes.joined_at = nowIso();
+      } else if (statusId === STAGE.LOST) {
+        changes.lost_at = nowIso();
       }
 
-      await updateLead(Number(tgUserId), changes);
-
-    } catch (err: any) {
-      console.error('[stage] error:', err?.response?.data ?? err.message);
+      await updateLead(telegramUserId, changes);
+    } catch (err) {
+      console.error('[stage] error:', errText(err));
     }
   });
 }

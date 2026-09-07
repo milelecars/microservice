@@ -3,36 +3,50 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.nowIso = nowIso;
 exports.getLead = getLead;
 exports.insertLead = insertLead;
 exports.updateLead = updateLead;
+exports.upsertLead = upsertLead;
 const axios_1 = __importDefault(require("axios"));
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_KEY;
-const headers = {
-    'Content-Type': 'application/json',
-    'apikey': SUPABASE_KEY,
-    'Authorization': `Bearer ${SUPABASE_KEY}`,
-};
+const env_1 = require("../env");
+// Never logged, never echoed back — see errText()/redact() in ../env.
+function restHeaders() {
+    const key = (0, env_1.requireEnv)('SUPABASE_KEY');
+    return {
+        'Content-Type': 'application/json',
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+    };
+}
+function restUrl(path) {
+    return `${(0, env_1.requireEnv)('SUPABASE_URL')}/rest/v1${path}`;
+}
+function nowIso() {
+    return new Date().toISOString();
+}
 // Get existing lead from Supabase by telegram_user_id
 async function getLead(telegramUserId) {
     try {
-        const resp = await axios_1.default.get(`${SUPABASE_URL}/rest/v1/leads?telegram_user_id=eq.${telegramUserId}&limit=1`, { headers, timeout: 10000 });
+        const resp = await axios_1.default.get(restUrl(`/leads?telegram_user_id=eq.${encodeURIComponent(String(telegramUserId))}&limit=1`), { headers: restHeaders(), timeout: 10000 });
         return resp.data?.[0] ?? null;
     }
     catch (err) {
-        console.error('[supabase] getLead failed:', err?.response?.data ?? err.message);
+        console.error('[supabase] getLead failed:', (0, env_1.errText)(err));
         return null;
     }
 }
 // Insert new lead (only on first contact)
 async function insertLead(data) {
     try {
-        const resp = await axios_1.default.post(`${SUPABASE_URL}/rest/v1/leads`, data, { headers: { ...headers, 'Prefer': 'return=minimal' }, timeout: 10000 });
-        console.log('[supabase] inserted lead:', data.kommo_lead_id, '| status:', resp.status);
+        const resp = await axios_1.default.post(restUrl('/leads'), data, {
+            headers: { ...restHeaders(), Prefer: 'return=minimal' },
+            timeout: 10000,
+        });
+        console.log('[supabase] inserted lead:', data.kommo_lead_id, '| TG user:', data.telegram_user_id, '| status:', resp.status);
     }
     catch (err) {
-        console.error('[supabase] insert failed:', err?.response?.data ?? err.message);
+        console.error('[supabase] insert failed:', (0, env_1.errText)(err));
     }
 }
 // Partial update — only send fields that actually changed, keyed by telegram_user_id
@@ -42,10 +56,44 @@ async function updateLead(telegramUserId, changes) {
         return;
     }
     try {
-        const resp = await axios_1.default.patch(`${SUPABASE_URL}/rest/v1/leads?telegram_user_id=eq.${telegramUserId}`, changes, { headers: { ...headers, 'Prefer': 'return=minimal' }, timeout: 10000 });
-        console.log('[supabase] updated TG user:', telegramUserId, '| changes:', JSON.stringify(changes), '| status:', resp.status);
+        const resp = await axios_1.default.patch(restUrl(`/leads?telegram_user_id=eq.${encodeURIComponent(String(telegramUserId))}`), changes, { headers: { ...restHeaders(), Prefer: 'return=minimal' }, timeout: 10000 });
+        console.log('[supabase] updated TG user:', telegramUserId, '| fields:', Object.keys(changes).join(', '), '| status:', resp.status);
     }
     catch (err) {
-        console.error('[supabase] update failed:', err?.response?.data ?? err.message);
+        console.error('[supabase] update failed:', (0, env_1.errText)(err));
     }
+}
+/**
+ * Insert the row on first contact, otherwise PATCH only the fields that changed.
+ * Returns the row as it was before the write (null when it was just created).
+ */
+async function upsertLead(telegramUserId, data, opts = {}) {
+    const existing = await getLead(telegramUserId);
+    if (!existing) {
+        const record = {
+            ...opts.insertOnly,
+            ...data,
+            telegram_user_id: telegramUserId,
+        };
+        for (const key of Object.keys(record)) {
+            if (record[key] === undefined)
+                delete record[key];
+        }
+        await insertLead(record);
+        return null;
+    }
+    const onlyIfNull = opts.onlyIfNull ?? [];
+    const changes = {};
+    for (const key of Object.keys(data)) {
+        const value = data[key];
+        if (value === undefined)
+            continue;
+        if (onlyIfNull.includes(key) && existing[key] !== null && existing[key] !== undefined)
+            continue;
+        if (existing[key] === value)
+            continue;
+        Object.assign(changes, { [key]: value });
+    }
+    await updateLead(telegramUserId, changes);
+    return existing;
 }
