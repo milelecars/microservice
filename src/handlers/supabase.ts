@@ -59,6 +59,29 @@ export async function getLead(telegramUserId: number | string): Promise<LeadReco
   }
 }
 
+async function getLeadBy(column: 'kommo_lead_id' | 'kommo_contact_id', value: string | number): Promise<LeadRecord | null> {
+  try {
+    const resp = await axios.get<LeadRecord[]>(
+      restUrl(`/leads?${column}=eq.${encodeURIComponent(String(value))}&limit=1`),
+      { headers: restHeaders(), timeout: 10_000 }
+    );
+    return resp.data?.[0] ?? null;
+  } catch (err) {
+    console.error(`[supabase] getLeadBy ${column} failed:`, errText(err));
+    return null;
+  }
+}
+
+/** Row linked to this Kommo lead, if one was linked already. */
+export async function getLeadByKommoLeadId(leadId: string | number): Promise<LeadRecord | null> {
+  return getLeadBy('kommo_lead_id', leadId);
+}
+
+/** Row linked to this Kommo contact, if one was linked already. */
+export async function getLeadByKommoContactId(contactId: string | number): Promise<LeadRecord | null> {
+  return getLeadBy('kommo_contact_id', contactId);
+}
+
 // Insert new lead (only on first contact)
 export async function insertLead(data: Partial<LeadRecord>): Promise<void> {
   try {

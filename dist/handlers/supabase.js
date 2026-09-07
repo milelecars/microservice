@@ -5,6 +5,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.nowIso = nowIso;
 exports.getLead = getLead;
+exports.getLeadByKommoLeadId = getLeadByKommoLeadId;
+exports.getLeadByKommoContactId = getLeadByKommoContactId;
 exports.insertLead = insertLead;
 exports.updateLead = updateLead;
 exports.upsertLead = upsertLead;
@@ -35,6 +37,24 @@ async function getLead(telegramUserId) {
         console.error('[supabase] getLead failed:', (0, env_1.errText)(err));
         return null;
     }
+}
+async function getLeadBy(column, value) {
+    try {
+        const resp = await axios_1.default.get(restUrl(`/leads?${column}=eq.${encodeURIComponent(String(value))}&limit=1`), { headers: restHeaders(), timeout: 10000 });
+        return resp.data?.[0] ?? null;
+    }
+    catch (err) {
+        console.error(`[supabase] getLeadBy ${column} failed:`, (0, env_1.errText)(err));
+        return null;
+    }
+}
+/** Row linked to this Kommo lead, if one was linked already. */
+async function getLeadByKommoLeadId(leadId) {
+    return getLeadBy('kommo_lead_id', leadId);
+}
+/** Row linked to this Kommo contact, if one was linked already. */
+async function getLeadByKommoContactId(contactId) {
+    return getLeadBy('kommo_contact_id', contactId);
 }
 // Insert new lead (only on first contact)
 async function insertLead(data) {

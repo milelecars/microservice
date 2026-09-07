@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
 import { requireEnv, errText } from '../env';
+import { pushPending } from '../pending';
 import { getLead, updateLead, upsertLead, nowIso, LeadRecord } from './supabase';
 
 // ── Telegram update shapes (only what we read) ────────────────────────────────
@@ -32,7 +33,7 @@ interface TgChatMemberUpdated {
 interface TgUpdate {
   message?: TgMessage;
   edited_message?: TgMessage;
-  callback_query?: { from?: TgUser };
+  callback_query?: { from?: TgUser; data?: string };
   chat_member?: TgChatMemberUpdated;
 }
 
@@ -123,7 +124,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         return;
       }
 
-      const msgText = msg?.text ?? '';
+      const msgText = msg?.text ?? body?.callback_query?.data ?? '';
       const isStartCommand = msgText === '/start' || msgText.startsWith('/start ');
 
       let sourcePlatform: string | undefined;
@@ -142,6 +143,19 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       const forwardBody = isStartCommand
         ? { ...body, message: { ...msg, text: 'Hi', entities: undefined } }
         : body;
+
+      // Remember what Kommo is about to receive, so /webhook/message can match
+      // this Telegram user back to the lead Kommo creates. Queued before the
+      // forward — Kommo's webhook can beat our own response back to us.
+      const textForwarded = isStartCommand ? 'Hi' : msgText;
+      const displayName = `${firstName ?? ''} ${lastName ?? ''}`.trim();
+      if (textForwarded) {
+        pushPending({
+          telegram_user_id: telegramUserId,
+          text_forwarded:   textForwarded,
+          display_name:     displayName,
+        });
+      }
 
       try {
         await axios.post(KOMMO_TG_WEBHOOK, forwardBody, {

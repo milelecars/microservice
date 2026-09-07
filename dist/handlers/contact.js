@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleContactUpdate = handleContactUpdate;
 const env_1 = require("../env");
 const kommo_1 = require("../kommo");
+const identity_1 = require("./identity");
 const supabase_1 = require("./supabase");
 /** The lead this contact is linked to inside the Founder Circle pipeline. */
 async function findPipelineLead(contact) {
@@ -42,11 +43,9 @@ async function handleContactUpdate(req, res) {
                 console.warn('[contact] no lead in pipeline', kommo_1.PIPELINE_ID, 'for contact:', contactId, '- skipping');
                 return;
             }
-            // Field not filled in yet — fall back to this contact's Telegram chat
-            const telegramUserId = (0, kommo_1.fieldValue)(lead.custom_fields_values, kommo_1.LEAD_FIELD.TG_USER_ID) ??
-                (await (0, kommo_1.resolveTelegramUserId)(contactId));
+            const { telegramUserId } = await (0, identity_1.resolveTelegramId)('[contact]', lead, lead.id, contactId);
             if (!telegramUserId) {
-                console.warn('[contact] no Telegram User ID on lead:', lead.id, 'and no telegram chat on contact:', contactId, '- skipping');
+                console.warn('[contact] could not resolve TG user ID | lead:', lead.id, '| contact:', contactId, '- skipping');
                 return;
             }
             const tags = lead._embedded?.tags;

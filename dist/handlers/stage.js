@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleStageChange = handleStageChange;
 const env_1 = require("../env");
 const kommo_1 = require("../kommo");
+const identity_1 = require("./identity");
 const supabase_1 = require("./supabase");
 // This route is called by Kommo on lead status change
 async function handleStageChange(req, res) {
@@ -22,18 +23,9 @@ async function handleStageChange(req, res) {
             console.log('[stage] lead:', leadId, '-> status:', statusId, '|', stageName ?? 'unknown stage');
             // Look up TG user ID from Kommo lead to update Supabase by telegram_user_id
             const fullLead = await (0, kommo_1.get)(`/leads/${leadId}?with=contacts`);
-            let telegramUserId = (0, kommo_1.fieldValue)(fullLead?.custom_fields_values, kommo_1.LEAD_FIELD.TG_USER_ID);
-            // Field not filled in yet — fall back to the linked contact's Telegram chat
-            if (!telegramUserId) {
-                const contacts = fullLead?._embedded?.contacts ?? [];
-                const mainContact = contacts.find(c => c.is_main) ?? contacts[0];
-                if (mainContact) {
-                    telegramUserId = await (0, kommo_1.resolveTelegramUserId)(mainContact.id);
-                }
-                else {
-                    console.warn('[stage] lead', leadId, 'has no linked contact');
-                }
-            }
+            const contacts = fullLead?._embedded?.contacts ?? [];
+            const mainContact = contacts.find(c => c.is_main) ?? contacts[0];
+            const { telegramUserId, row } = await (0, identity_1.resolveTelegramId)('[stage]', fullLead, leadId, mainContact?.id);
             if (!telegramUserId) {
                 console.warn('[stage] could not resolve TG user ID for lead:', leadId, '- skipping Supabase update');
                 return;
@@ -44,7 +36,7 @@ async function handleStageChange(req, res) {
             // Stage-driven milestones, matched on status id (names change in Kommo)
             if (statusId === kommo_1.STAGE.JOINED_CHANNEL) {
                 changes.in_channel = true;
-                const existing = await (0, supabase_1.getLead)(telegramUserId);
+                const existing = row ?? (await (0, supabase_1.getLead)(telegramUserId));
                 if (!existing?.joined_at)
                     changes.joined_at = (0, supabase_1.nowIso)();
             }

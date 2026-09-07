@@ -7,8 +7,8 @@ import {
   get as kommoGet,
   patch as kommoPatch,
   fieldValue,
-  resolveTelegramUserId,
 } from '../kommo';
+import { matchPending, pendingSize } from '../pending';
 import { getLead, updateLead, LeadRecord } from './supabase';
 
 // Kommo message webhook payload (only what we read)
@@ -18,6 +18,7 @@ interface KommoMessage {
   entity_id?: string | number;
   element_id?: string | number;
   contact_id?: string | number;
+  author?: { id?: string | number; name?: string };
 }
 
 interface MessageWebhookBody {
@@ -88,10 +89,7 @@ async function linkLeadAndContact(
     const changes: Partial<LeadRecord> = {};
     if (row.kommo_lead_id !== leadId) changes.kommo_lead_id = leadId;
     if (row.kommo_contact_id !== contactId) changes.kommo_contact_id = contactId;
-    if (Object.keys(changes).length > 0) {
-      await updateLead(telegramUserId, changes);
-      console.log('[webhook] linked | lead:', leadId, '| contact:', contactId, '| TG user:', telegramUserId);
-    }
+    if (Object.keys(changes).length > 0) await updateLead(telegramUserId, changes);
   } else {
     console.warn('[webhook] no Supabase row for TG user:', telegramUserId, '- lead not linked');
   }
@@ -128,9 +126,10 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
       for (const msg of messages) {
         if (msg.type !== 'incoming') continue;
 
-        const leadId    = msg.entity_id ?? msg.element_id;
-        const contactId = msg.contact_id;
-        const text      = msg.text ?? '';
+        const leadId     = msg.entity_id ?? msg.element_id;
+        const contactId  = msg.contact_id;
+        const text       = msg.text ?? '';
+        const authorName = msg.author?.name ?? '';
 
         console.log('[webhook] incoming message | lead:', leadId, '| contact:', contactId, '| text:', text);
 
@@ -140,14 +139,20 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
           // Fetch once — used for the link step and for the tag replacement
           const lead = await kommoGet<KommoLead>(`/leads/${leadId}?with=tags`);
 
-          // ── Link the row to this lead/contact ─────────────────────────────
+          // ── Match this message back to the Telegram update we forwarded ───
           let telegramUserId: string | undefined;
           if (contactId) {
-            telegramUserId = await resolveTelegramUserId(contactId);
-            if (telegramUserId) {
+            const match = matchPending(text, authorName);
+            if (match) {
+              telegramUserId = String(match.telegram_user_id);
               await linkLeadAndContact(lead, String(leadId), String(contactId), telegramUserId);
+              console.log('[link] lead', leadId, '<-> TG', telegramUserId, 'via message match');
             } else {
-              console.warn('[webhook] could not resolve TG user ID from contact:', contactId);
+              console.warn(
+                '[link] unmatched message | text:', text,
+                '| author:', authorName || '-',
+                '| pending:', pendingSize()
+              );
             }
           } else {
             console.warn('[webhook] message has no contact_id - cannot link lead:', leadId);

@@ -2,14 +2,8 @@ import { Request, Response } from 'express';
 import axios from 'axios';
 import { resumeBot } from '../callback';
 import { errText } from '../env';
-import {
-  LEAD_FIELD,
-  KommoLead,
-  get as kommoGet,
-  patch as kommoPatch,
-  fieldValue,
-  resolveTelegramUserId,
-} from '../kommo';
+import { LEAD_FIELD, KommoLead, get as kommoGet, patch as kommoPatch } from '../kommo';
+import { resolveTelegramId } from './identity';
 import { getLead, updateLead, nowIso, LeadRecord } from './supabase';
 
 interface TelegramChatMemberResponse {
@@ -87,37 +81,38 @@ export async function verifyChannel(req: Request, res: Response): Promise<void> 
         return;
       }
 
-      // ── Step 1: check if Telegram User ID already stored on the lead ───────
+      // ── Step 1: resolve the Telegram user id ──────────────────────────────
       const lead = await kommoGet<KommoLead>(`/leads/${leadId}?with=contacts`);
       const contacts = lead?._embedded?.contacts ?? [];
       const mainContact = contacts.find(c => c.is_main) ?? contacts[0];
       const contactId = mainContact?.id;
       console.log('[channel] contactId:', contactId);
 
-      let telegramUserId = fieldValue(lead?.custom_fields_values, LEAD_FIELD.TG_USER_ID);
-      console.log('[channel] stored telegramUserId from lead field:', telegramUserId ?? '-');
-
-      // ── Step 2: if not stored, discover from the contact's chats ──────────
-      if (!telegramUserId && contactId) {
-        console.log('[channel] no stored ID - fetching chats...');
-
-        telegramUserId = await resolveTelegramUserId(contactId);
-        console.log('[channel] discovered telegramUserId from chat:', telegramUserId ?? '-');
-
-        // ── Step 3: save discovered ID onto the LEAD (1067290 is a lead field)
-        if (telegramUserId) {
-          await kommoPatch(`/leads/${leadId}`, {
-            custom_fields_values: [
-              { field_id: LEAD_FIELD.TG_USER_ID, values: [{ value: Number(telegramUserId) }] },
-            ],
-          });
-          console.log('[channel] saved telegramUserId to lead field:', telegramUserId);
-        }
-      }
+      const { telegramUserId, row, via } = await resolveTelegramId('[channel]', lead, leadId, contactId);
+      console.log('[channel] telegramUserId:', telegramUserId ?? '-', '| via:', via);
 
       if (!telegramUserId) {
         console.error('[channel] could not resolve Telegram user ID');
         await resumeBot(return_url, 'not_joined', kommoToken, 'Could not resolve Telegram user ID');
+        return;
+      }
+
+      // ── Step 2: save it onto the LEAD when the field was empty ────────────
+      if (via !== 'lead-field') {
+        await kommoPatch(`/leads/${leadId}`, {
+          custom_fields_values: [
+            { field_id: LEAD_FIELD.TG_USER_ID, values: [{ value: Number(telegramUserId) }] },
+          ],
+        });
+        console.log('[channel] saved telegramUserId to lead field:', telegramUserId);
+      }
+
+      // ── Step 3: chat_member already told us they are in ───────────────────
+      const existing = row ?? (await getLead(telegramUserId));
+      if (existing?.in_channel) {
+        console.log('[channel] in_channel already true - answering joined | TG user:', telegramUserId);
+        if (!existing.joined_at) await updateLead(telegramUserId, { joined_at: nowIso() });
+        await resumeBot(return_url, 'joined', kommoToken, 'Channel membership confirmed');
         return;
       }
 

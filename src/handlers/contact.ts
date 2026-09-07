@@ -2,16 +2,15 @@ import { Request, Response } from 'express';
 import { errText } from '../env';
 import {
   CONTACT_FIELD,
-  LEAD_FIELD,
   PIPELINE_ID,
   KommoContact,
   KommoLead,
   get as kommoGet,
   fieldValue,
   hasTag,
-  resolveTelegramUserId,
   tagNames,
 } from '../kommo';
+import { resolveTelegramId } from './identity';
 import { upsertLead, nowIso, LeadRecord } from './supabase';
 
 // Kommo account webhooks post form-encoded contacts[add|update][0][id]
@@ -70,15 +69,12 @@ export async function handleContactUpdate(req: Request, res: Response): Promise<
         return;
       }
 
-      // Field not filled in yet — fall back to this contact's Telegram chat
-      const telegramUserId =
-        fieldValue(lead.custom_fields_values, LEAD_FIELD.TG_USER_ID) ??
-        (await resolveTelegramUserId(contactId));
+      const { telegramUserId } = await resolveTelegramId('[contact]', lead, lead.id, contactId);
 
       if (!telegramUserId) {
         console.warn(
-          '[contact] no Telegram User ID on lead:', lead.id,
-          'and no telegram chat on contact:', contactId, '- skipping'
+          '[contact] could not resolve TG user ID | lead:', lead.id,
+          '| contact:', contactId, '- skipping'
         );
         return;
       }

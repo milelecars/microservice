@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleTelegramWebhook = handleTelegramWebhook;
 const axios_1 = __importDefault(require("axios"));
 const env_1 = require("../env");
+const pending_1 = require("../pending");
 const supabase_1 = require("./supabase");
 // Kommo's Telegram hook for @FounderCircleAdminBot. Falls back to the literal
 // URL so the service starts without KOMMO_TG_WEBHOOK set.
@@ -78,7 +79,7 @@ async function handleTelegramWebhook(req, res) {
                 console.warn('[telegram] no from.id - skipping');
                 return;
             }
-            const msgText = msg?.text ?? '';
+            const msgText = msg?.text ?? body?.callback_query?.data ?? '';
             const isStartCommand = msgText === '/start' || msgText.startsWith('/start ');
             let sourcePlatform;
             if (msgText.startsWith('/start ')) {
@@ -91,6 +92,18 @@ async function handleTelegramWebhook(req, res) {
             const forwardBody = isStartCommand
                 ? { ...body, message: { ...msg, text: 'Hi', entities: undefined } }
                 : body;
+            // Remember what Kommo is about to receive, so /webhook/message can match
+            // this Telegram user back to the lead Kommo creates. Queued before the
+            // forward — Kommo's webhook can beat our own response back to us.
+            const textForwarded = isStartCommand ? 'Hi' : msgText;
+            const displayName = `${firstName ?? ''} ${lastName ?? ''}`.trim();
+            if (textForwarded) {
+                (0, pending_1.pushPending)({
+                    telegram_user_id: telegramUserId,
+                    text_forwarded: textForwarded,
+                    display_name: displayName,
+                });
+            }
             try {
                 await axios_1.default.post(KOMMO_TG_WEBHOOK, forwardBody, {
                     headers: { 'Content-Type': 'application/json' },

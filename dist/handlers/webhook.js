@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleNewMessage = handleNewMessage;
 const env_1 = require("../env");
 const kommo_1 = require("../kommo");
+const pending_1 = require("../pending");
 const supabase_1 = require("./supabase");
 // ─── Keyword → Tag mapping (last match wins) ───────────────────────────────
 const TAG_RULES = [
@@ -59,10 +60,8 @@ async function linkLeadAndContact(lead, leadId, contactId, telegramUserId) {
             changes.kommo_lead_id = leadId;
         if (row.kommo_contact_id !== contactId)
             changes.kommo_contact_id = contactId;
-        if (Object.keys(changes).length > 0) {
+        if (Object.keys(changes).length > 0)
             await (0, supabase_1.updateLead)(telegramUserId, changes);
-            console.log('[webhook] linked | lead:', leadId, '| contact:', contactId, '| TG user:', telegramUserId);
-        }
     }
     else {
         console.warn('[webhook] no Supabase row for TG user:', telegramUserId, '- lead not linked');
@@ -96,21 +95,24 @@ async function handleNewMessage(req, res) {
                 const leadId = msg.entity_id ?? msg.element_id;
                 const contactId = msg.contact_id;
                 const text = msg.text ?? '';
+                const authorName = msg.author?.name ?? '';
                 console.log('[webhook] incoming message | lead:', leadId, '| contact:', contactId, '| text:', text);
                 if (!leadId)
                     continue;
                 try {
                     // Fetch once — used for the link step and for the tag replacement
                     const lead = await (0, kommo_1.get)(`/leads/${leadId}?with=tags`);
-                    // ── Link the row to this lead/contact ─────────────────────────────
+                    // ── Match this message back to the Telegram update we forwarded ───
                     let telegramUserId;
                     if (contactId) {
-                        telegramUserId = await (0, kommo_1.resolveTelegramUserId)(contactId);
-                        if (telegramUserId) {
+                        const match = (0, pending_1.matchPending)(text, authorName);
+                        if (match) {
+                            telegramUserId = String(match.telegram_user_id);
                             await linkLeadAndContact(lead, String(leadId), String(contactId), telegramUserId);
+                            console.log('[link] lead', leadId, '<-> TG', telegramUserId, 'via message match');
                         }
                         else {
-                            console.warn('[webhook] could not resolve TG user ID from contact:', contactId);
+                            console.warn('[link] unmatched message | text:', text, '| author:', authorName || '-', '| pending:', (0, pending_1.pendingSize)());
                         }
                     }
                     else {

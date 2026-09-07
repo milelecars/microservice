@@ -1,14 +1,7 @@
 import { Request, Response } from 'express';
 import { errText } from '../env';
-import {
-  LEAD_FIELD,
-  STAGE,
-  KommoLead,
-  get as kommoGet,
-  getStageMap,
-  fieldValue,
-  resolveTelegramUserId,
-} from '../kommo';
+import { STAGE, KommoLead, get as kommoGet, getStageMap } from '../kommo';
+import { resolveTelegramId } from './identity';
 import { getLead, updateLead, nowIso, LeadRecord } from './supabase';
 
 interface WebhookLead {
@@ -49,18 +42,10 @@ export async function handleStageChange(req: Request, res: Response): Promise<vo
 
       // Look up TG user ID from Kommo lead to update Supabase by telegram_user_id
       const fullLead = await kommoGet<KommoLead>(`/leads/${leadId}?with=contacts`);
-      let telegramUserId = fieldValue(fullLead?.custom_fields_values, LEAD_FIELD.TG_USER_ID);
+      const contacts = fullLead?._embedded?.contacts ?? [];
+      const mainContact = contacts.find(c => c.is_main) ?? contacts[0];
 
-      // Field not filled in yet — fall back to the linked contact's Telegram chat
-      if (!telegramUserId) {
-        const contacts = fullLead?._embedded?.contacts ?? [];
-        const mainContact = contacts.find(c => c.is_main) ?? contacts[0];
-        if (mainContact) {
-          telegramUserId = await resolveTelegramUserId(mainContact.id);
-        } else {
-          console.warn('[stage] lead', leadId, 'has no linked contact');
-        }
-      }
+      const { telegramUserId, row } = await resolveTelegramId('[stage]', fullLead, leadId, mainContact?.id);
 
       if (!telegramUserId) {
         console.warn('[stage] could not resolve TG user ID for lead:', leadId, '- skipping Supabase update');
@@ -73,7 +58,7 @@ export async function handleStageChange(req: Request, res: Response): Promise<vo
       // Stage-driven milestones, matched on status id (names change in Kommo)
       if (statusId === STAGE.JOINED_CHANNEL) {
         changes.in_channel = true;
-        const existing = await getLead(telegramUserId);
+        const existing = row ?? (await getLead(telegramUserId));
         if (!existing?.joined_at) changes.joined_at = nowIso();
       } else if (statusId === STAGE.LOST) {
         changes.lost_at = nowIso();
