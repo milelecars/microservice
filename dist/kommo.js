@@ -9,6 +9,7 @@ exports.patch = patch;
 exports.getStageMap = getStageMap;
 exports.resolveTelegramUserId = resolveTelegramUserId;
 exports.fieldValue = fieldValue;
+exports.fieldValueLast = fieldValueLast;
 exports.tagNames = tagNames;
 exports.hasTag = hasTag;
 const axios_1 = __importDefault(require("axios"));
@@ -114,13 +115,25 @@ async function resolveTelegramUserId(contactId) {
     }
 }
 // ── Field helpers ─────────────────────────────────────────────────────────────
-/** First value of a custom field, as a trimmed string. */
-function fieldValue(fields, fieldId) {
-    const raw = fields?.find(f => f.field_id === fieldId)?.values?.[0]?.value;
+function pickValue(fields, fieldId, which) {
+    const values = fields?.find(f => f.field_id === fieldId)?.values ?? [];
+    const picked = which === 'last' ? values[values.length - 1] : values[0];
+    const raw = picked?.value;
     if (raw === undefined || raw === null)
         return undefined;
     const text = String(raw).trim();
     return text.length > 0 ? text : undefined;
+}
+/** First value of a custom field, as a trimmed string. */
+function fieldValue(fields, fieldId) {
+    return pickValue(fields, fieldId, 'first');
+}
+/**
+ * Last value of a custom field — multitext fields such as Phone and Email keep
+ * every value the Salesbot has written, and the newest one is the current one.
+ */
+function fieldValueLast(fields, fieldId) {
+    return pickValue(fields, fieldId, 'last');
 }
 /** Tag names joined by comma, or undefined when the entity has no tags. */
 function tagNames(tags) {

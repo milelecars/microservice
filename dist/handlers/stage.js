@@ -44,6 +44,17 @@ async function handleStageChange(req, res) {
                 changes.lost_at = (0, supabase_1.nowIso)();
             }
             await (0, supabase_1.updateLead)(telegramUserId, changes);
+            // Kommo sets the tag around the same time as the stage — read it back
+            // once the stage is stored, so current_tag follows the move.
+            const tagged = await (0, kommo_1.get)(`/leads/${leadId}?with=tags`);
+            const currentTag = (0, kommo_1.tagNames)(tagged?._embedded?.tags);
+            if (currentTag) {
+                const existing = row ?? (await (0, supabase_1.getLead)(telegramUserId));
+                if (existing?.current_tag !== currentTag) {
+                    await (0, supabase_1.updateLead)(telegramUserId, { current_tag: currentTag });
+                    console.log('[stage] tags synced | lead:', leadId, '| tags:', currentTag);
+                }
+            }
         }
         catch (err) {
             console.error('[stage] error:', (0, env_1.errText)(err));

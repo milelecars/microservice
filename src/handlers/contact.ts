@@ -7,6 +7,7 @@ import {
   KommoLead,
   get as kommoGet,
   fieldValue,
+  fieldValueLast,
   hasTag,
   tagNames,
 } from '../kommo';
@@ -49,8 +50,8 @@ export async function syncContactAnswers(
     kommo_lead_id:    String(leadId),
     kommo_contact_id: String(contactId),
     name:             contact.name?.trim() || undefined,
-    phone:            fieldValue(fields, CONTACT_FIELD.PHONE),
-    email:            fieldValue(fields, CONTACT_FIELD.EMAIL),
+    phone:            fieldValueLast(fields, CONTACT_FIELD.PHONE),
+    email:            fieldValueLast(fields, CONTACT_FIELD.EMAIL),
     country:          fieldValue(fields, CONTACT_FIELD.COUNTRY),
     age_bracket:      fieldValue(fields, CONTACT_FIELD.AGE),
     interest:         fieldValue(fields, CONTACT_FIELD.INTEREST),

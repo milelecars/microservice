@@ -199,12 +199,30 @@ export async function resolveTelegramUserId(contactId: number | string): Promise
 
 // ── Field helpers ─────────────────────────────────────────────────────────────
 
-/** First value of a custom field, as a trimmed string. */
-export function fieldValue(fields: KommoCustomField[] | null | undefined, fieldId: number): string | undefined {
-  const raw = fields?.find(f => f.field_id === fieldId)?.values?.[0]?.value;
+function pickValue(
+  fields: KommoCustomField[] | null | undefined,
+  fieldId: number,
+  which: 'first' | 'last'
+): string | undefined {
+  const values = fields?.find(f => f.field_id === fieldId)?.values ?? [];
+  const picked = which === 'last' ? values[values.length - 1] : values[0];
+  const raw = picked?.value;
   if (raw === undefined || raw === null) return undefined;
   const text = String(raw).trim();
   return text.length > 0 ? text : undefined;
+}
+
+/** First value of a custom field, as a trimmed string. */
+export function fieldValue(fields: KommoCustomField[] | null | undefined, fieldId: number): string | undefined {
+  return pickValue(fields, fieldId, 'first');
+}
+
+/**
+ * Last value of a custom field — multitext fields such as Phone and Email keep
+ * every value the Salesbot has written, and the newest one is the current one.
+ */
+export function fieldValueLast(fields: KommoCustomField[] | null | undefined, fieldId: number): string | undefined {
+  return pickValue(fields, fieldId, 'last');
 }
 
 /** Tag names joined by comma, or undefined when the entity has no tags. */

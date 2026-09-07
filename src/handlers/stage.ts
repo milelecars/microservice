@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { errText } from '../env';
-import { STAGE, KommoLead, get as kommoGet, getStageMap } from '../kommo';
+import { STAGE, KommoLead, get as kommoGet, getStageMap, tagNames } from '../kommo';
 import { resolveTelegramId } from './identity';
 import { getLead, updateLead, nowIso, LeadRecord } from './supabase';
 
@@ -65,6 +65,18 @@ export async function handleStageChange(req: Request, res: Response): Promise<vo
       }
 
       await updateLead(telegramUserId, changes);
+
+      // Kommo sets the tag around the same time as the stage — read it back
+      // once the stage is stored, so current_tag follows the move.
+      const tagged = await kommoGet<KommoLead>(`/leads/${leadId}?with=tags`);
+      const currentTag = tagNames(tagged?._embedded?.tags);
+      if (currentTag) {
+        const existing = row ?? (await getLead(telegramUserId));
+        if (existing?.current_tag !== currentTag) {
+          await updateLead(telegramUserId, { current_tag: currentTag });
+          console.log('[stage] tags synced | lead:', leadId, '| tags:', currentTag);
+        }
+      }
     } catch (err) {
       console.error('[stage] error:', errText(err));
     }
