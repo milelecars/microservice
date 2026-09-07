@@ -4,7 +4,9 @@ exports.handleNewMessage = handleNewMessage;
 const env_1 = require("../env");
 const kommo_1 = require("../kommo");
 const pending_1 = require("../pending");
+const contact_1 = require("./contact");
 const supabase_1 = require("./supabase");
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // ─── Keyword → Tag mapping (last match wins) ───────────────────────────────
 const TAG_RULES = [
     {
@@ -117,6 +119,19 @@ async function handleNewMessage(req, res) {
                     }
                     else {
                         console.warn('[webhook] message has no contact_id - cannot link lead:', leadId);
+                    }
+                    // ── Sync the Salesbot answers ─────────────────────────────────────
+                    // Kommo writes the contact field just after the message arrives, so
+                    // give it a moment before reading the contact back.
+                    if (contactId) {
+                        const answersFor = telegramUserId ?? (0, kommo_1.fieldValue)(lead?.custom_fields_values, kommo_1.LEAD_FIELD.TG_USER_ID);
+                        if (answersFor) {
+                            await sleep(3000);
+                            await (0, contact_1.syncContactAnswers)(contactId, leadId, answersFor);
+                        }
+                        else {
+                            console.warn('[answers] no TG user ID for lead:', leadId, '- skipping answer sync');
+                        }
                     }
                     // ── Keyword tagging ───────────────────────────────────────────────
                     if (!text)

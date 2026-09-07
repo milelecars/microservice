@@ -49,7 +49,7 @@ export function nowIso(): string {
 export async function getLead(telegramUserId: number | string): Promise<LeadRecord | null> {
   try {
     const resp = await axios.get<LeadRecord[]>(
-      restUrl(`/leads?telegram_user_id=eq.${encodeURIComponent(String(telegramUserId))}&limit=1`),
+      restUrl(`/founder_circle_members?telegram_user_id=eq.${encodeURIComponent(String(telegramUserId))}&limit=1`),
       { headers: restHeaders(), timeout: 10_000 }
     );
     return resp.data?.[0] ?? null;
@@ -62,7 +62,7 @@ export async function getLead(telegramUserId: number | string): Promise<LeadReco
 async function getLeadBy(column: 'kommo_lead_id' | 'kommo_contact_id', value: string | number): Promise<LeadRecord | null> {
   try {
     const resp = await axios.get<LeadRecord[]>(
-      restUrl(`/leads?${column}=eq.${encodeURIComponent(String(value))}&limit=1`),
+      restUrl(`/founder_circle_members?${column}=eq.${encodeURIComponent(String(value))}&limit=1`),
       { headers: restHeaders(), timeout: 10_000 }
     );
     return resp.data?.[0] ?? null;
@@ -85,7 +85,7 @@ export async function getLeadByKommoContactId(contactId: string | number): Promi
 // Insert new lead (only on first contact)
 export async function insertLead(data: Partial<LeadRecord>): Promise<void> {
   try {
-    const resp = await axios.post(restUrl('/leads'), data, {
+    const resp = await axios.post(restUrl('/founder_circle_members'), data, {
       headers: { ...restHeaders(), Prefer: 'return=minimal' },
       timeout: 10_000,
     });
@@ -103,7 +103,7 @@ export async function updateLead(telegramUserId: number | string, changes: Parti
   }
   try {
     const resp = await axios.patch(
-      restUrl(`/leads?telegram_user_id=eq.${encodeURIComponent(String(telegramUserId))}`),
+      restUrl(`/founder_circle_members?telegram_user_id=eq.${encodeURIComponent(String(telegramUserId))}`),
       changes,
       { headers: { ...restHeaders(), Prefer: 'return=minimal' }, timeout: 10_000 }
     );
@@ -118,6 +118,26 @@ export interface UpsertOptions {
   insertOnly?: Partial<LeadRecord>;
   /** Keys in `data` that must not overwrite a value the row already has. */
   onlyIfNull?: (keyof LeadRecord)[];
+}
+
+/**
+ * The subset of `data` that would actually change the row. Keys listed in
+ * `onlyIfNull` are dropped when the row already holds a value for them.
+ */
+export function diffLead(
+  existing: LeadRecord,
+  data: Partial<LeadRecord>,
+  onlyIfNull: (keyof LeadRecord)[] = []
+): Partial<LeadRecord> {
+  const changes: Partial<LeadRecord> = {};
+  for (const key of Object.keys(data) as (keyof LeadRecord)[]) {
+    const value = data[key];
+    if (value === undefined) continue;
+    if (onlyIfNull.includes(key) && existing[key] !== null && existing[key] !== undefined) continue;
+    if (existing[key] === value) continue;
+    Object.assign(changes, { [key]: value });
+  }
+  return changes;
 }
 
 /**
@@ -144,16 +164,6 @@ export async function upsertLead(
     return null;
   }
 
-  const onlyIfNull = opts.onlyIfNull ?? [];
-  const changes: Partial<LeadRecord> = {};
-  for (const key of Object.keys(data) as (keyof LeadRecord)[]) {
-    const value = data[key];
-    if (value === undefined) continue;
-    if (onlyIfNull.includes(key) && existing[key] !== null && existing[key] !== undefined) continue;
-    if (existing[key] === value) continue;
-    Object.assign(changes, { [key]: value });
-  }
-
-  await updateLead(telegramUserId, changes);
+  await updateLead(telegramUserId, diffLead(existing, data, opts.onlyIfNull ?? []));
   return existing;
 }

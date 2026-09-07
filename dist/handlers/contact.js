@@ -1,10 +1,58 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.syncContactAnswers = syncContactAnswers;
 exports.handleContactUpdate = handleContactUpdate;
 const env_1 = require("../env");
 const kommo_1 = require("../kommo");
 const identity_1 = require("./identity");
 const supabase_1 = require("./supabase");
+/**
+ * Copy the six Salesbot answers and the lead's tags onto the Supabase row.
+ * Used by both the Kommo contact webhook and every incoming message, so the
+ * answers land even when the contact webhook does not fire.
+ */
+async function syncContactAnswers(contactId, leadId, telegramUserId) {
+    const contact = await (0, kommo_1.get)(`/contacts/${contactId}`);
+    if (!contact) {
+        console.warn('[answers] contact not found:', contactId);
+        return;
+    }
+    const fields = contact.custom_fields_values;
+    const lead = await (0, kommo_1.get)(`/leads/${leadId}?with=tags`);
+    const tags = lead?._embedded?.tags;
+    const data = {
+        kommo_lead_id: String(leadId),
+        kommo_contact_id: String(contactId),
+        name: contact.name?.trim() || undefined,
+        phone: (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.PHONE),
+        email: (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.EMAIL),
+        country: (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.COUNTRY),
+        age_bracket: (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.AGE),
+        interest: (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.INTEREST),
+        current_tag: (0, kommo_1.tagNames)(tags),
+    };
+    if ((0, kommo_1.hasTag)(tags, 'Link sent'))
+        data.link_sent_at = (0, supabase_1.nowIso)();
+    const existing = await (0, supabase_1.getLead)(telegramUserId);
+    if (!existing) {
+        const record = { ...data, telegram_user_id: Number(telegramUserId) };
+        for (const key of Object.keys(record)) {
+            if (record[key] === undefined)
+                delete record[key];
+        }
+        await (0, supabase_1.insertLead)(record);
+        console.log('[answers] TG', telegramUserId, '| row created');
+        return;
+    }
+    const changes = (0, supabase_1.diffLead)(existing, data, ['link_sent_at']);
+    const changed = Object.keys(changes);
+    if (changed.length === 0) {
+        console.log('[answers] TG', telegramUserId, '| no change');
+        return;
+    }
+    await (0, supabase_1.updateLead)(telegramUserId, changes);
+    console.log('[answers] TG', telegramUserId, '| updated:', changed.join(', '));
+}
 /** The lead this contact is linked to inside the Founder Circle pipeline. */
 async function findPipelineLead(contact) {
     for (const ref of contact._embedded?.leads ?? []) {
@@ -31,13 +79,6 @@ async function handleContactUpdate(req, res) {
                 console.warn('[contact] contact not found:', contactId);
                 return;
             }
-            const fields = contact.custom_fields_values;
-            const name = contact.name?.trim() || undefined;
-            const phone = (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.PHONE);
-            const email = (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.EMAIL);
-            const country = (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.COUNTRY);
-            const ageBracket = (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.AGE);
-            const interest = (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.INTEREST);
             const lead = await findPipelineLead(contact);
             if (!lead) {
                 console.warn('[contact] no lead in pipeline', kommo_1.PIPELINE_ID, 'for contact:', contactId, '- skipping');
@@ -48,24 +89,8 @@ async function handleContactUpdate(req, res) {
                 console.warn('[contact] could not resolve TG user ID | lead:', lead.id, '| contact:', contactId, '- skipping');
                 return;
             }
-            const tags = lead._embedded?.tags;
-            const currentTag = (0, kommo_1.tagNames)(tags);
-            const linkSent = (0, kommo_1.hasTag)(tags, 'Link sent');
-            const data = {
-                kommo_lead_id: String(lead.id),
-                kommo_contact_id: contactId,
-                name,
-                phone,
-                email,
-                country,
-                age_bracket: ageBracket,
-                interest,
-                current_tag: currentTag,
-            };
-            if (linkSent)
-                data.link_sent_at = (0, supabase_1.nowIso)();
-            await (0, supabase_1.upsertLead)(Number(telegramUserId), data, { onlyIfNull: ['link_sent_at'] });
-            console.log('[contact] synced | contact:', contactId, '| lead:', lead.id, '| TG user:', telegramUserId, '| tags:', currentTag ?? '-');
+            await syncContactAnswers(contactId, lead.id, telegramUserId);
+            console.log('[contact] synced | contact:', contactId, '| lead:', lead.id, '| TG user:', telegramUserId);
         }
         catch (err) {
             console.error('[contact] error:', (0, env_1.errText)(err));

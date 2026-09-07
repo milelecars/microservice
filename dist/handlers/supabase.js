@@ -9,6 +9,7 @@ exports.getLeadByKommoLeadId = getLeadByKommoLeadId;
 exports.getLeadByKommoContactId = getLeadByKommoContactId;
 exports.insertLead = insertLead;
 exports.updateLead = updateLead;
+exports.diffLead = diffLead;
 exports.upsertLead = upsertLead;
 const axios_1 = __importDefault(require("axios"));
 const env_1 = require("../env");
@@ -30,7 +31,7 @@ function nowIso() {
 // Get existing lead from Supabase by telegram_user_id
 async function getLead(telegramUserId) {
     try {
-        const resp = await axios_1.default.get(restUrl(`/leads?telegram_user_id=eq.${encodeURIComponent(String(telegramUserId))}&limit=1`), { headers: restHeaders(), timeout: 10000 });
+        const resp = await axios_1.default.get(restUrl(`/founder_circle_members?telegram_user_id=eq.${encodeURIComponent(String(telegramUserId))}&limit=1`), { headers: restHeaders(), timeout: 10000 });
         return resp.data?.[0] ?? null;
     }
     catch (err) {
@@ -40,7 +41,7 @@ async function getLead(telegramUserId) {
 }
 async function getLeadBy(column, value) {
     try {
-        const resp = await axios_1.default.get(restUrl(`/leads?${column}=eq.${encodeURIComponent(String(value))}&limit=1`), { headers: restHeaders(), timeout: 10000 });
+        const resp = await axios_1.default.get(restUrl(`/founder_circle_members?${column}=eq.${encodeURIComponent(String(value))}&limit=1`), { headers: restHeaders(), timeout: 10000 });
         return resp.data?.[0] ?? null;
     }
     catch (err) {
@@ -59,7 +60,7 @@ async function getLeadByKommoContactId(contactId) {
 // Insert new lead (only on first contact)
 async function insertLead(data) {
     try {
-        const resp = await axios_1.default.post(restUrl('/leads'), data, {
+        const resp = await axios_1.default.post(restUrl('/founder_circle_members'), data, {
             headers: { ...restHeaders(), Prefer: 'return=minimal' },
             timeout: 10000,
         });
@@ -76,12 +77,30 @@ async function updateLead(telegramUserId, changes) {
         return;
     }
     try {
-        const resp = await axios_1.default.patch(restUrl(`/leads?telegram_user_id=eq.${encodeURIComponent(String(telegramUserId))}`), changes, { headers: { ...restHeaders(), Prefer: 'return=minimal' }, timeout: 10000 });
+        const resp = await axios_1.default.patch(restUrl(`/founder_circle_members?telegram_user_id=eq.${encodeURIComponent(String(telegramUserId))}`), changes, { headers: { ...restHeaders(), Prefer: 'return=minimal' }, timeout: 10000 });
         console.log('[supabase] updated TG user:', telegramUserId, '| fields:', Object.keys(changes).join(', '), '| status:', resp.status);
     }
     catch (err) {
         console.error('[supabase] update failed:', (0, env_1.errText)(err));
     }
+}
+/**
+ * The subset of `data` that would actually change the row. Keys listed in
+ * `onlyIfNull` are dropped when the row already holds a value for them.
+ */
+function diffLead(existing, data, onlyIfNull = []) {
+    const changes = {};
+    for (const key of Object.keys(data)) {
+        const value = data[key];
+        if (value === undefined)
+            continue;
+        if (onlyIfNull.includes(key) && existing[key] !== null && existing[key] !== undefined)
+            continue;
+        if (existing[key] === value)
+            continue;
+        Object.assign(changes, { [key]: value });
+    }
+    return changes;
 }
 /**
  * Insert the row on first contact, otherwise PATCH only the fields that changed.
@@ -102,18 +121,6 @@ async function upsertLead(telegramUserId, data, opts = {}) {
         await insertLead(record);
         return null;
     }
-    const onlyIfNull = opts.onlyIfNull ?? [];
-    const changes = {};
-    for (const key of Object.keys(data)) {
-        const value = data[key];
-        if (value === undefined)
-            continue;
-        if (onlyIfNull.includes(key) && existing[key] !== null && existing[key] !== undefined)
-            continue;
-        if (existing[key] === value)
-            continue;
-        Object.assign(changes, { [key]: value });
-    }
-    await updateLead(telegramUserId, changes);
+    await updateLead(telegramUserId, diffLead(existing, data, opts.onlyIfNull ?? []));
     return existing;
 }

@@ -9,7 +9,10 @@ import {
   fieldValue,
 } from '../kommo';
 import { matchPending, pendingSize } from '../pending';
+import { syncContactAnswers } from './contact';
 import { getLead, updateLead, LeadRecord } from './supabase';
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 // Kommo message webhook payload (only what we read)
 interface KommoMessage {
@@ -156,6 +159,19 @@ export async function handleNewMessage(req: Request, res: Response): Promise<voi
             }
           } else {
             console.warn('[webhook] message has no contact_id - cannot link lead:', leadId);
+          }
+
+          // ── Sync the Salesbot answers ─────────────────────────────────────
+          // Kommo writes the contact field just after the message arrives, so
+          // give it a moment before reading the contact back.
+          if (contactId) {
+            const answersFor = telegramUserId ?? fieldValue(lead?.custom_fields_values, LEAD_FIELD.TG_USER_ID);
+            if (answersFor) {
+              await sleep(3000);
+              await syncContactAnswers(contactId, leadId, answersFor);
+            } else {
+              console.warn('[answers] no TG user ID for lead:', leadId, '- skipping answer sync');
+            }
           }
 
           // ── Keyword tagging ───────────────────────────────────────────────
