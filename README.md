@@ -167,6 +167,7 @@ Keyed by `telegram_user_id`.
 | `in_channel` | stage, channel, `chat_member` |
 | `join_check_failures` | channel and the "I've Joined" tap, incremented on every failed check |
 | `join_message_sent` | answers sync — the join invitation went out once |
+| `join_message_sent_at` | join step — last join/retry message, throttled to one a minute |
 | `welcome_sent` | welcome routine — the welcome went out once |
 
 These three are newer than that migration — add them with:
@@ -175,6 +176,7 @@ These three are newer than that migration — add them with:
 alter table public.founder_circle_members
   add column if not exists kommo_talk_id text,
   add column if not exists join_message_sent boolean not null default false,
+  add column if not exists join_message_sent_at timestamptz,
   add column if not exists welcome_sent boolean not null default false;
 ```
 

@@ -11,8 +11,8 @@ import {
   hasTag,
   tagNames,
 } from '../kommo';
-import { sendJoinMessage } from '../telegram-api';
 import { resolveTelegramId } from './identity';
+import { sendJoinInvite } from './join';
 import { getLead, insertLead, updateLead, diffLead, nowIso, LeadRecord } from './supabase';
 
 // Kommo account webhooks post form-encoded contacts[add|update][0][id]
@@ -92,7 +92,7 @@ export async function syncContactAnswers(
 
 /** Send the join invitation once, and remember that we did. */
 async function inviteToChannel(telegramUserId: string | number): Promise<void> {
-  const sent = await sendJoinMessage(telegramUserId);
+  const sent = await sendJoinInvite(telegramUserId);
   if (sent) await updateLead(telegramUserId, { join_message_sent: true });
 }
 

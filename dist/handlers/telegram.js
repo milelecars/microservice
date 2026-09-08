@@ -9,6 +9,7 @@ const env_1 = require("../env");
 const kommo_1 = require("../kommo");
 const pending_1 = require("../pending");
 const telegram_api_1 = require("../telegram-api");
+const join_1 = require("./join");
 const supabase_1 = require("./supabase");
 const welcome_1 = require("./welcome");
 /** callback_data of our own "I've Joined" button. */
@@ -50,8 +51,8 @@ async function handleJoinedTap(query) {
         await (0, welcome_1.welcomeUser)(telegramUserId);
         return;
     }
-    await (0, telegram_api_1.sendNotJoinedMessage)(telegramUserId);
     const existing = await (0, supabase_1.getLead)(telegramUserId);
+    await (0, join_1.sendJoinRetry)(telegramUserId, existing);
     if (existing) {
         await (0, supabase_1.updateLead)(telegramUserId, {
             join_check_failures: (existing.join_check_failures ?? 0) + 1,
@@ -137,7 +138,7 @@ async function handleTelegramWebhook(req, res) {
                 }
                 // Got the link but never made it in: offer the join buttons again
                 if (existing?.link_sent_at && !existing.joined_at) {
-                    await (0, telegram_api_1.sendJoinMessage)(telegramUserId);
+                    await (0, join_1.sendJoinInvite)(telegramUserId, existing);
                 }
                 if (existing?.kommo_talk_id) {
                     await (0, kommo_1.closeTalk)(existing.kommo_talk_id, telegramUserId);

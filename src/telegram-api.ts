@@ -72,8 +72,27 @@ export async function sendMessage(
   }
 }
 
+/**
+ * Lift the ban Telegram applies when an admin removes someone from the
+ * channel — while it stands, every invite link tells that person the link has
+ * expired. Harmless for anyone who is not banned, and failures do not matter.
+ */
+export async function unbanFromChannel(telegramUserId: number | string): Promise<void> {
+  try {
+    const resp = await axios.post<{ result?: boolean }>(
+      api('unbanChatMember'),
+      { chat_id: requireEnv('CHANNEL_ID'), user_id: telegramUserId, only_if_banned: true },
+      { timeout: 10_000 }
+    );
+    if (resp.data?.result === true) console.log('[invite] unbanned TG', telegramUserId);
+  } catch {
+    // Ignored on purpose: the bot may not be an admin, or the person was never banned
+  }
+}
+
 /** The join invitation, sent once the email has been accepted. */
 export async function sendJoinMessage(telegramUserId: number | string): Promise<boolean> {
+  await unbanFromChannel(telegramUserId);
   const sent = await sendMessage(telegramUserId, JOIN_TEXT, joinKeyboard());
   if (sent) console.log('[join] message sent to TG', telegramUserId);
   return sent;
@@ -81,6 +100,7 @@ export async function sendJoinMessage(telegramUserId: number | string): Promise<
 
 /** Shown when "I've Joined" was tapped but the person is not in the channel. */
 export async function sendNotJoinedMessage(telegramUserId: number | string): Promise<boolean> {
+  await unbanFromChannel(telegramUserId);
   return sendMessage(telegramUserId, NOT_IN_CHANNEL_TEXT, joinKeyboard());
 }
 

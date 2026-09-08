@@ -3,13 +3,8 @@ import axios from 'axios';
 import { requireEnv, errText } from '../env';
 import { ContactStatus, closeTalk, setContactStatus } from '../kommo';
 import { pushPending } from '../pending';
-import {
-  answerCallbackQuery,
-  getChatMemberStatus,
-  isInChannelStatus,
-  sendJoinMessage,
-  sendNotJoinedMessage,
-} from '../telegram-api';
+import { answerCallbackQuery, getChatMemberStatus, isInChannelStatus } from '../telegram-api';
+import { sendJoinInvite, sendJoinRetry } from './join';
 import { getLead, updateLead, upsertLead, nowIso, LeadRecord } from './supabase';
 import { welcomeUser } from './welcome';
 
@@ -100,9 +95,9 @@ async function handleJoinedTap(query: TgCallbackQuery): Promise<void> {
     return;
   }
 
-  await sendNotJoinedMessage(telegramUserId);
-
   const existing = await getLead(telegramUserId);
+  await sendJoinRetry(telegramUserId, existing);
+
   if (existing) {
     await updateLead(telegramUserId, {
       join_check_failures: (existing.join_check_failures ?? 0) + 1,
@@ -214,7 +209,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
         // Got the link but never made it in: offer the join buttons again
         if (existing?.link_sent_at && !existing.joined_at) {
-          await sendJoinMessage(telegramUserId);
+          await sendJoinInvite(telegramUserId, existing);
         }
 
         if (existing?.kommo_talk_id) {

@@ -41,6 +41,7 @@ export interface LeadRecord {
   in_channel?:               boolean;
   join_check_failures?:      number;
   join_message_sent?:        boolean; // join invitation sent once, after the email
+  join_message_sent_at?:     string | null; // last join/retry message, for throttling
   welcome_sent?:             boolean; // welcome sent once, after the join was confirmed
 }
 

@@ -4,8 +4,8 @@ exports.syncContactAnswers = syncContactAnswers;
 exports.handleContactUpdate = handleContactUpdate;
 const env_1 = require("../env");
 const kommo_1 = require("../kommo");
-const telegram_api_1 = require("../telegram-api");
 const identity_1 = require("./identity");
+const join_1 = require("./join");
 const supabase_1 = require("./supabase");
 /**
  * Copy the six Salesbot answers and the lead's tags onto the Supabase row.
@@ -62,7 +62,7 @@ async function syncContactAnswers(contactId, leadId, telegramUserId) {
 }
 /** Send the join invitation once, and remember that we did. */
 async function inviteToChannel(telegramUserId) {
-    const sent = await (0, telegram_api_1.sendJoinMessage)(telegramUserId);
+    const sent = await (0, join_1.sendJoinInvite)(telegramUserId);
     if (sent)
         await (0, supabase_1.updateLead)(telegramUserId, { join_message_sent: true });
 }
