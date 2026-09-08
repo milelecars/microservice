@@ -4,25 +4,34 @@ exports.sendJoinInvite = sendJoinInvite;
 exports.sendJoinRetry = sendJoinRetry;
 const telegram_api_1 = require("../telegram-api");
 const supabase_1 = require("./supabase");
-/** Two join messages closer together than this are the same nudge twice. */
+/** Two automatic join messages closer together than this are the same nudge twice. */
 const MIN_GAP_MS = 60000;
-async function sendOnce(telegramUserId, send, known) {
+async function stamp(telegramUserId) {
+    await (0, supabase_1.updateLead)(telegramUserId, { join_message_sent_at: (0, supabase_1.nowIso)() });
+}
+/**
+ * The join invitation. This one is automatic — link_sent detection and /start
+ * can both fire within seconds of each other — so it is throttled.
+ */
+async function sendJoinInvite(telegramUserId, known) {
     const row = known ?? (await (0, supabase_1.getLead)(telegramUserId));
     const lastSent = row?.join_message_sent_at ? Date.parse(row.join_message_sent_at) : NaN;
     if (!Number.isNaN(lastSent) && Date.now() - lastSent < MIN_GAP_MS) {
         console.log('[join] suppressed duplicate | TG', telegramUserId);
         return false;
     }
-    const sent = await send(telegramUserId);
+    const sent = await (0, telegram_api_1.sendJoinMessage)(telegramUserId);
     if (sent)
-        await (0, supabase_1.updateLead)(telegramUserId, { join_message_sent_at: (0, supabase_1.nowIso)() });
+        await stamp(telegramUserId);
     return sent;
 }
-/** The join invitation — at most one per minute per person. */
-async function sendJoinInvite(telegramUserId, known) {
-    return sendOnce(telegramUserId, telegram_api_1.sendJoinMessage, known);
-}
-/** The "cannot see you yet" retry — throttled the same way. */
-async function sendJoinRetry(telegramUserId, known) {
-    return sendOnce(telegramUserId, telegram_api_1.sendNotJoinedMessage, known);
+/**
+ * The "cannot see you yet" retry. Never throttled: the person just tapped the
+ * button and is owed an answer, however often they tap.
+ */
+async function sendJoinRetry(telegramUserId) {
+    const sent = await (0, telegram_api_1.sendNotJoinedMessage)(telegramUserId);
+    if (sent)
+        await stamp(telegramUserId);
+    return sent;
 }

@@ -51,8 +51,8 @@ async function handleJoinedTap(query) {
         await (0, welcome_1.welcomeUser)(telegramUserId);
         return;
     }
+    await (0, join_1.sendJoinRetry)(telegramUserId);
     const existing = await (0, supabase_1.getLead)(telegramUserId);
-    await (0, join_1.sendJoinRetry)(telegramUserId, existing);
     if (existing) {
         await (0, supabase_1.updateLead)(telegramUserId, {
             join_check_failures: (existing.join_check_failures ?? 0) + 1,

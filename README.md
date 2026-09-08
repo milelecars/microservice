@@ -167,7 +167,7 @@ Keyed by `telegram_user_id`.
 | `in_channel` | stage, channel, `chat_member` |
 | `join_check_failures` | channel and the "I've Joined" tap, incremented on every failed check |
 | `join_message_sent` | answers sync — the join invitation went out once |
-| `join_message_sent_at` | join step — last join/retry message, throttled to one a minute |
+| `join_message_sent_at` | join step — last join message; automatic sends are throttled to one a minute, the *I've Joined* retry always sends |
 | `welcome_sent` | welcome routine — the welcome went out once |
 
 These three are newer than that migration — add them with:

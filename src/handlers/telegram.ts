@@ -95,8 +95,9 @@ async function handleJoinedTap(query: TgCallbackQuery): Promise<void> {
     return;
   }
 
+  await sendJoinRetry(telegramUserId);
+
   const existing = await getLead(telegramUserId);
-  await sendJoinRetry(telegramUserId, existing);
 
   if (existing) {
     await updateLead(telegramUserId, {

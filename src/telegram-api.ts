@@ -79,12 +79,14 @@ export async function sendMessage(
  */
 export async function unbanFromChannel(telegramUserId: number | string): Promise<void> {
   try {
-    const resp = await axios.post<{ result?: boolean }>(
+    await axios.post(
       api('unbanChatMember'),
       { chat_id: requireEnv('CHANNEL_ID'), user_id: telegramUserId, only_if_banned: true },
       { timeout: 10_000 }
     );
-    if (resp.data?.result === true) console.log('[invite] unbanned TG', telegramUserId);
+    // Telegram answers the same whether or not a ban existed, so this only
+    // records that we asked.
+    console.log('[invite] unban called for TG', telegramUserId);
   } catch {
     // Ignored on purpose: the bot may not be an admin, or the person was never banned
   }
