@@ -154,7 +154,17 @@ export async function post<T>(path: string, body: unknown): Promise<T | null> {
 
 // ── Contact status (field 1003176) ────────────────────────────────────────────
 
-export type ContactStatus = 'joined' | 'link sent' | '';
+/** Values bot version 26 routes on, in contact field 1003176. */
+export type ContactStatus =
+  | 'joined'
+  | 'link sent'
+  | 'need name'
+  | 'need country'
+  | 'need age'
+  | 'need interest'
+  | 'need phone'
+  | 'need email'
+  | '';
 
 /**
  * Mirror where the person stands onto the contact, so Kommo and Supabase never

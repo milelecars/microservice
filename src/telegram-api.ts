@@ -46,30 +46,45 @@ function api(method: string): string {
   return `https://api.telegram.org/bot${requireEnv('BOT_TOKEN')}/${method}`;
 }
 
+export interface SendResult {
+  ok: boolean;
+  /** 403 — the person blocked the bot, so there is no point trying again. */
+  blocked: boolean;
+}
+
 /**
- * Send a message. Returns false when Telegram refused it — 403 means the
- * person blocked the bot, which is normal and only worth a log line.
+ * Send a message, reporting whether the person has blocked the bot. Callers
+ * that only care whether it went out can use sendMessage().
  */
-export async function sendMessage(
+export async function sendMessageResult(
   chatId: number | string,
   text: string,
   replyMarkup?: ReplyMarkup
-): Promise<boolean> {
+): Promise<SendResult> {
   try {
     await axios.post(
       api('sendMessage'),
       { chat_id: chatId, text, reply_markup: replyMarkup, disable_web_page_preview: true },
       { timeout: 10_000 }
     );
-    return true;
+    return { ok: true, blocked: false };
   } catch (err) {
     if (axios.isAxiosError(err) && err.response?.status === 403) {
       console.warn('[telegram-api] TG', chatId, 'has blocked the bot - message not sent');
-      return false;
+      return { ok: false, blocked: true };
     }
     console.error('[telegram-api] sendMessage failed for TG', chatId, '|', errText(err));
-    return false;
+    return { ok: false, blocked: false };
   }
+}
+
+/** Send a message. False when Telegram refused it, for any reason. */
+export async function sendMessage(
+  chatId: number | string,
+  text: string,
+  replyMarkup?: ReplyMarkup
+): Promise<boolean> {
+  return (await sendMessageResult(chatId, text, replyMarkup)).ok;
 }
 
 /**
@@ -104,6 +119,16 @@ export async function sendJoinMessage(telegramUserId: number | string): Promise<
 export async function sendNotJoinedMessage(telegramUserId: number | string): Promise<boolean> {
   await unbanFromChannel(telegramUserId);
   return sendMessage(telegramUserId, NOT_IN_CHANNEL_TEXT, joinKeyboard());
+}
+
+/** The single button under a reminder. */
+export function continueKeyboard(): ReplyMarkup {
+  return { inline_keyboard: [[{ text: 'Continue ▶️', callback_data: 'fc_continue' }]] };
+}
+
+/** A reminder for someone who stopped halfway through the questions. */
+export async function sendReminder(telegramUserId: number | string, text: string): Promise<SendResult> {
+  return sendMessageResult(telegramUserId, text, continueKeyboard());
 }
 
 /** Stop the button's spinner. Failures here are cosmetic. */

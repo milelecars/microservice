@@ -4,6 +4,7 @@ exports.syncContactAnswers = syncContactAnswers;
 exports.handleContactUpdate = handleContactUpdate;
 const env_1 = require("../env");
 const kommo_1 = require("../kommo");
+const questions_1 = require("../questions");
 const identity_1 = require("./identity");
 const join_1 = require("./join");
 const supabase_1 = require("./supabase");
@@ -35,6 +36,13 @@ async function syncContactAnswers(contactId, leadId, telegramUserId) {
     if ((0, kommo_1.hasTag)(tags, 'Link sent'))
         data.link_sent_at = (0, supabase_1.nowIso)();
     const existing = await (0, supabase_1.getLead)(telegramUserId);
+    // Where the Salesbot should pick up if this person comes back
+    const merged = { ...existing };
+    for (const key of Object.keys(data)) {
+        if (data[key] !== undefined)
+            Object.assign(merged, { [key]: data[key] });
+    }
+    data.next_question = (0, questions_1.nextQuestionFor)(merged);
     if (!existing) {
         const record = { ...data, telegram_user_id: Number(telegramUserId) };
         for (const key of Object.keys(record)) {

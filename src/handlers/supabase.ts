@@ -43,6 +43,10 @@ export interface LeadRecord {
   join_message_sent?:        boolean; // join invitation sent once, after the email
   join_message_sent_at?:     string | null; // last join/retry message, for throttling
   welcome_sent?:             boolean; // welcome sent once, after the join was confirmed
+  last_activity_at?:         string | null; // last message or tap from the person
+  next_question?:            string | null; // 1003176 value that resumes the Salesbot
+  reminder_stage?:           number; // how many reminders have gone out (0-4)
+  reminder_sent_at?:         string | null;
 }
 
 export function nowIso(): string {
@@ -73,6 +77,23 @@ async function getLeadBy(column: 'kommo_lead_id' | 'kommo_contact_id', value: st
   } catch (err) {
     console.error(`[supabase] getLeadBy ${column} failed:`, errText(err));
     return null;
+  }
+}
+
+/**
+ * Rows matching a raw PostgREST query string, e.g.
+ * `link_sent_at=is.null&joined_at=is.null&limit=500`.
+ */
+export async function queryLeads(query: string): Promise<LeadRecord[]> {
+  try {
+    const resp = await axios.get<LeadRecord[]>(restUrl(`/founder_circle_members?${query}`), {
+      headers: restHeaders(),
+      timeout: 15_000,
+    });
+    return resp.data ?? [];
+  } catch (err) {
+    console.error('[supabase] queryLeads failed:', errText(err));
+    return [];
   }
 }
 

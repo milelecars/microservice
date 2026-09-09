@@ -11,6 +11,7 @@ import {
   hasTag,
   tagNames,
 } from '../kommo';
+import { nextQuestionFor } from '../questions';
 import { resolveTelegramId } from './identity';
 import { sendJoinInvite } from './join';
 import { getLead, insertLead, updateLead, diffLead, nowIso, LeadRecord } from './supabase';
@@ -61,6 +62,13 @@ export async function syncContactAnswers(
   if (hasTag(tags, 'Link sent')) data.link_sent_at = nowIso();
 
   const existing = await getLead(telegramUserId);
+
+  // Where the Salesbot should pick up if this person comes back
+  const merged: Partial<LeadRecord> = { ...existing };
+  for (const key of Object.keys(data) as (keyof LeadRecord)[]) {
+    if (data[key] !== undefined) Object.assign(merged, { [key]: data[key] });
+  }
+  data.next_question = nextQuestionFor(merged);
 
   if (!existing) {
     const record: Partial<LeadRecord> = { ...data, telegram_user_id: Number(telegramUserId) };

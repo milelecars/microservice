@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.nowIso = nowIso;
 exports.getLead = getLead;
+exports.queryLeads = queryLeads;
 exports.getLeadByKommoLeadId = getLeadByKommoLeadId;
 exports.getLeadByKommoContactId = getLeadByKommoContactId;
 exports.insertLead = insertLead;
@@ -47,6 +48,23 @@ async function getLeadBy(column, value) {
     catch (err) {
         console.error(`[supabase] getLeadBy ${column} failed:`, (0, env_1.errText)(err));
         return null;
+    }
+}
+/**
+ * Rows matching a raw PostgREST query string, e.g.
+ * `link_sent_at=is.null&joined_at=is.null&limit=500`.
+ */
+async function queryLeads(query) {
+    try {
+        const resp = await axios_1.default.get(restUrl(`/founder_circle_members?${query}`), {
+            headers: restHeaders(),
+            timeout: 15000,
+        });
+        return resp.data ?? [];
+    }
+    catch (err) {
+        console.error('[supabase] queryLeads failed:', (0, env_1.errText)(err));
+        return [];
     }
 }
 /** Row linked to this Kommo lead, if one was linked already. */

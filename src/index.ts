@@ -6,8 +6,10 @@ import { handleNewMessage } from './handlers/webhook';
 import { handleTelegramWebhook } from './handlers/telegram';
 import { handleStageChange } from './handlers/stage';
 import { handleContactUpdate } from './handlers/contact';
+import { resendJoin } from './handlers/admin';
 import { assertEnv } from './env';
 import { listPending } from './pending';
+import { startReminders } from './reminders';
 
 assertEnv();
 
@@ -71,6 +73,8 @@ app.post('/webhook/message', handleNewMessage);
 app.post('/webhook/telegram', handleTelegramWebhook);
 app.post('/webhook/contact', handleContactUpdate);
 
+app.post('/admin/resend-join', resendJoin);
+
 app.get('/verify/channel', (_req: Request, res: Response) => {
   res.status(405).json({ ok: false, error: 'Method Not Allowed. Use POST /verify/channel' });
 });
@@ -116,4 +120,5 @@ const host = process.env.HOST ?? '0.0.0.0';
 
 app.listen(port, host, () => {
   console.log(`[server] listening on http://${host}:${port}`);
+  startReminders();
 });

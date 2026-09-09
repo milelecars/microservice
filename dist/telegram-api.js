@@ -6,10 +6,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WELCOME_TEXT = exports.NOT_IN_CHANNEL_TEXT = exports.JOIN_TEXT = void 0;
 exports.inviteLink = inviteLink;
 exports.joinKeyboard = joinKeyboard;
+exports.sendMessageResult = sendMessageResult;
 exports.sendMessage = sendMessage;
 exports.unbanFromChannel = unbanFromChannel;
 exports.sendJoinMessage = sendJoinMessage;
 exports.sendNotJoinedMessage = sendNotJoinedMessage;
+exports.continueKeyboard = continueKeyboard;
+exports.sendReminder = sendReminder;
 exports.answerCallbackQuery = answerCallbackQuery;
 exports.getChatMemberStatus = getChatMemberStatus;
 exports.isInChannelStatus = isInChannelStatus;
@@ -40,22 +43,26 @@ function api(method) {
     return `https://api.telegram.org/bot${(0, env_1.requireEnv)('BOT_TOKEN')}/${method}`;
 }
 /**
- * Send a message. Returns false when Telegram refused it — 403 means the
- * person blocked the bot, which is normal and only worth a log line.
+ * Send a message, reporting whether the person has blocked the bot. Callers
+ * that only care whether it went out can use sendMessage().
  */
-async function sendMessage(chatId, text, replyMarkup) {
+async function sendMessageResult(chatId, text, replyMarkup) {
     try {
         await axios_1.default.post(api('sendMessage'), { chat_id: chatId, text, reply_markup: replyMarkup, disable_web_page_preview: true }, { timeout: 10000 });
-        return true;
+        return { ok: true, blocked: false };
     }
     catch (err) {
         if (axios_1.default.isAxiosError(err) && err.response?.status === 403) {
             console.warn('[telegram-api] TG', chatId, 'has blocked the bot - message not sent');
-            return false;
+            return { ok: false, blocked: true };
         }
         console.error('[telegram-api] sendMessage failed for TG', chatId, '|', (0, env_1.errText)(err));
-        return false;
+        return { ok: false, blocked: false };
     }
+}
+/** Send a message. False when Telegram refused it, for any reason. */
+async function sendMessage(chatId, text, replyMarkup) {
+    return (await sendMessageResult(chatId, text, replyMarkup)).ok;
 }
 /**
  * Lift the ban Telegram applies when an admin removes someone from the
@@ -85,6 +92,14 @@ async function sendJoinMessage(telegramUserId) {
 async function sendNotJoinedMessage(telegramUserId) {
     await unbanFromChannel(telegramUserId);
     return sendMessage(telegramUserId, exports.NOT_IN_CHANNEL_TEXT, joinKeyboard());
+}
+/** The single button under a reminder. */
+function continueKeyboard() {
+    return { inline_keyboard: [[{ text: 'Continue ▶️', callback_data: 'fc_continue' }]] };
+}
+/** A reminder for someone who stopped halfway through the questions. */
+async function sendReminder(telegramUserId, text) {
+    return sendMessageResult(telegramUserId, text, continueKeyboard());
 }
 /** Stop the button's spinner. Failures here are cosmetic. */
 async function answerCallbackQuery(callbackQueryId, text) {

@@ -45,6 +45,8 @@ It also still serves the two Weex checks used by the older funnel (`/verify/regi
 | `POST /verify/channel` | Kommo Salesbot (`widget_request`) | Telegram channel membership via `getChatMember`. Still works, but no longer on the main path |
 | `POST /verify/registered` | Kommo Salesbot | Weex UID exists under the affiliate account |
 | `POST /verify/deposited` | Kommo Salesbot | Weex UID has deposited |
+| `POST /admin/resend-join` | You, by hand | One-time catch-up: resends the join card to everyone still outside. Needs `X-Admin-Key` |
+| `GET /debug/pending` | You, by hand | What the pending-match table is holding right now |
 | `GET /health` | Railway | `ok` |
 
 Every endpoint answers HTTP 200 within Kommo's 2-second budget and does the real work afterwards.
@@ -71,6 +73,7 @@ The service refuses to start (exit 1) if any of the first six are missing.
 | `SUPABASE_URL` | yes | `https://<project>.supabase.co` |
 | `SUPABASE_KEY` | yes | Supabase service-role key |
 | `PUBLIC_URL` | for `set-webhook` | Public base URL of this deployment |
+| `ADMIN_KEY` | for `/admin/*` | Shared secret for `X-Admin-Key`. Without it the admin route answers 503 |
 | `WEEX_API_KEY` / `WEEX_SECRET_KEY` / `WEEX_PASSPHRASE` | Weex checks only | Weex affiliate API credentials |
 | `PORT` / `HOST` | no | Defaults `3000` / `0.0.0.0` |
 
@@ -169,6 +172,10 @@ Keyed by `telegram_user_id`.
 | `join_message_sent` | answers sync — the join invitation went out once |
 | `join_message_sent_at` | join step — last join message; automatic sends are throttled to one a minute, the *I've Joined* retry always sends |
 | `welcome_sent` | welcome routine — the welcome went out once |
+| `last_activity_at` | telegram — every message or button tap from the person |
+| `next_question` | answers sync — the `1003176` value that resumes the Salesbot |
+| `reminder_stage` | reminders — 0-4, how many nudges have gone out |
+| `reminder_sent_at` | reminders — when the last nudge went out |
 
 These three are newer than that migration — add them with:
 
@@ -177,8 +184,39 @@ alter table public.founder_circle_members
   add column if not exists kommo_talk_id text,
   add column if not exists join_message_sent boolean not null default false,
   add column if not exists join_message_sent_at timestamptz,
-  add column if not exists welcome_sent boolean not null default false;
+  add column if not exists welcome_sent boolean not null default false,
+  add column if not exists last_activity_at timestamptz,
+  add column if not exists next_question text,
+  add column if not exists reminder_stage integer not null default 0,
+  add column if not exists reminder_sent_at timestamptz;
+
+update public.founder_circle_members
+  set last_activity_at = coalesce(updated_at, started_at)
+  where last_activity_at is null;
 ```
+
+## Reminders
+
+A loop started with the server checks every 5 minutes for rows that have
+`started_at` but no `link_sent_at` and no `joined_at`, and nudges them with a **Continue ▶️**
+button. The ladder is 2 h → 8 h → 24 h → 72 h, measured from the last sign of life
+(`last_activity_at`, or `reminder_sent_at` once we have nudged), so any reply resets the clock and
+four reminders is the maximum. Nothing is sent between 23:00 and 08:00 in the person's own time —
+guessed from their phone's dialling code, falling back to Asia/Dubai — the row is simply picked up
+on a later run. Someone who has blocked the bot is moved straight to stage 4.
+
+Tapping **Continue** puts the question they stopped on into contact field `1003176`, closes the open
+talk and forwards a fresh `Hi` to Kommo, so bot version 26 resumes at that question instead of
+starting over. `/start` from an unfinished sign-up does the same.
+
+### One-time catch-up
+
+```bash
+curl -X POST https://YOUR_URL/admin/resend-join   -H "X-Admin-Key: $ADMIN_KEY" -H 'Content-Type: application/json' -d '{}'
+```
+
+Resends the join card to everyone with `link_sent_at` set who is not in the channel, one per second,
+and answers with the count. Pass `{"telegram_user_id": 123}` to target one person.
 
 The table and these columns are created by `supabase_founder_circle.sql`. The service never creates
 tables — it only reads and writes rows through the Supabase REST API.

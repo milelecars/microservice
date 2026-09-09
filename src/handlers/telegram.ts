@@ -3,7 +3,13 @@ import axios from 'axios';
 import { requireEnv, errText } from '../env';
 import { ContactStatus, closeTalk, setContactStatus } from '../kommo';
 import { pushPending } from '../pending';
-import { answerCallbackQuery, getChatMemberStatus, isInChannelStatus } from '../telegram-api';
+import { nextQuestionFor } from '../questions';
+import {
+  answerCallbackQuery,
+  getChatMemberStatus,
+  isInChannelStatus,
+  sendJoinMessage,
+} from '../telegram-api';
 import { sendJoinInvite, sendJoinRetry } from './join';
 import { getLead, updateLead, upsertLead, nowIso, LeadRecord } from './supabase';
 import { welcomeUser } from './welcome';
@@ -38,6 +44,7 @@ interface TgCallbackQuery {
   id?: string;
   from?: TgUser;
   data?: string;
+  message?: { chat?: TgChat };
 }
 
 interface TgUpdate {
@@ -47,8 +54,9 @@ interface TgUpdate {
   chat_member?: TgChatMemberUpdated;
 }
 
-/** callback_data of our own "I've Joined" button. */
+/** callback_data of our own buttons. */
 const JOINED_CALLBACK = 'fc_joined';
+const CONTINUE_CALLBACK = 'fc_continue';
 
 // Kommo's Telegram hook for @FounderCircleAdminBot. Falls back to the literal
 // URL so the service starts without KOMMO_TG_WEBHOOK set.
@@ -73,7 +81,100 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 function statusFor(row: LeadRecord): ContactStatus {
   if (row.joined_at || row.in_channel) return 'joined';
   if (row.link_sent_at) return 'link sent';
-  return '';
+  return (row.next_question as ContactStatus | null) ?? nextQuestionFor(row) ?? '';
+}
+
+/** Forward a plain "Hi" to Kommo in the shape Telegram would have sent it. */
+async function forwardToKommo(update: unknown): Promise<void> {
+  try {
+    await axios.post(KOMMO_TG_WEBHOOK, update, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10_000,
+    });
+    console.log('[telegram] forwarded to Kommo OK');
+  } catch (err) {
+    console.error('[telegram] forward failed:', errText(err));
+  }
+}
+
+function syntheticHi(user: TgUser, chatId: number): unknown {
+  return {
+    update_id: Date.now(),
+    message: {
+      message_id: Math.floor(Date.now() / 1000),
+      from: {
+        id: user.id,
+        is_bot: false,
+        first_name: user.first_name ?? '',
+        last_name: user.last_name,
+        username: user.username,
+      },
+      chat: {
+        id: chatId,
+        first_name: user.first_name ?? '',
+        last_name: user.last_name,
+        username: user.username,
+        type: 'private',
+      },
+      date: Math.floor(Date.now() / 1000),
+      text: 'Hi',
+    },
+  };
+}
+
+// ── "Continue" tap: pick the questions up where they stopped ──────────────────
+
+async function handleContinueTap(query: TgCallbackQuery): Promise<void> {
+  if (query.id) await answerCallbackQuery(query.id);
+
+  const user = query.from;
+  const telegramUserId = user?.id;
+  if (!user || !telegramUserId) {
+    console.warn('[resume] callback without from.id - skipping');
+    return;
+  }
+
+  await updateLead(telegramUserId, { last_activity_at: nowIso() });
+
+  const row = await getLead(telegramUserId);
+  if (!row) {
+    console.warn('[resume] no Supabase row for TG', telegramUserId, '- skipping');
+    return;
+  }
+
+  const nextQuestion = nextQuestionFor(row);
+
+  // Everything answered, they just never got in
+  if (!nextQuestion) {
+    await sendJoinMessage(telegramUserId);
+    console.log('[resume] TG', telegramUserId, '-> all answered, join message resent');
+    return;
+  }
+
+  if (row.next_question !== nextQuestion) {
+    await updateLead(telegramUserId, { next_question: nextQuestion });
+  }
+
+  if (row.kommo_contact_id) {
+    await setContactStatus(row.kommo_contact_id, nextQuestion);
+  } else {
+    console.warn('[resume] no contact id for TG', telegramUserId, '- Kommo not told where to resume');
+  }
+
+  if (row.kommo_talk_id) {
+    await closeTalk(row.kommo_talk_id, telegramUserId);
+    await sleep(1000);
+  }
+
+  const chatId = query.message?.chat?.id ?? telegramUserId;
+  pushPending({
+    telegram_user_id: telegramUserId,
+    text_forwarded:   'Hi',
+    display_name:     `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim(),
+  });
+  await forwardToKommo(syntheticHi(user, chatId));
+
+  console.log('[resume] TG', telegramUserId, '->', nextQuestion);
 }
 
 // ── "I've Joined" tap ─────────────────────────────────────────────────────────
@@ -86,6 +187,8 @@ async function handleJoinedTap(query: TgCallbackQuery): Promise<void> {
     console.warn('[join] callback without from.id - skipping');
     return;
   }
+
+  await updateLead(telegramUserId, { last_activity_at: nowIso() });
 
   const status = await getChatMemberStatus(requireEnv('CHANNEL_ID'), telegramUserId);
   console.log('[join] I have joined tapped | TG user:', telegramUserId, '| status:', status ?? '-');
@@ -162,9 +265,13 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         return;
       }
 
-      // Our own button: handled here, never forwarded to Kommo
+      // Our own buttons: handled here, never forwarded to Kommo
       if (body?.callback_query?.data === JOINED_CALLBACK) {
         await handleJoinedTap(body.callback_query);
+        return;
+      }
+      if (body?.callback_query?.data === CONTINUE_CALLBACK) {
+        await handleContinueTap(body.callback_query);
         return;
       }
 
@@ -201,22 +308,24 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       // Kommo treats what follows as a new conversation and the Salesbot runs
       // again. First-time users have no row and no talk, and ordinary messages
       // must never close anything.
-      if (isStartCommand) {
-        const existing = await getLead(telegramUserId);
+      const existing = await getLead(telegramUserId);
 
-        if (existing?.kommo_contact_id) {
+      if (isStartCommand && existing) {
+        // statusFor() points Kommo at the question they stopped on, so /start
+        // resumes instead of starting over.
+        if (existing.kommo_contact_id) {
           await setContactStatus(existing.kommo_contact_id, statusFor(existing));
         }
 
-        // Got the link but never made it in: offer the join buttons again
-        if (existing?.link_sent_at && !existing.joined_at) {
-          await sendJoinInvite(telegramUserId, existing);
-        }
-
-        if (existing?.kommo_talk_id) {
+        if (existing.kommo_talk_id) {
           await closeTalk(existing.kommo_talk_id, telegramUserId);
           await sleep(1000);
         }
+      }
+
+      // Got the link but never made it in: any message brings the card back
+      if (existing?.link_sent_at && !existing.joined_at && !existing.in_channel) {
+        await sendJoinInvite(telegramUserId, existing);
       }
 
       // Forward to Kommo (the hook URL carries the bot token - never log it)
@@ -237,15 +346,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         });
       }
 
-      try {
-        await axios.post(KOMMO_TG_WEBHOOK, forwardBody, {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 10_000,
-        });
-        console.log('[telegram] forwarded to Kommo OK');
-      } catch (err) {
-        console.error('[telegram] forward failed:', errText(err));
-      }
+      await forwardToKommo(forwardBody);
 
       // The Kommo lead does not exist yet at this point — /webhook/message links
       // the lead and contact once Kommo has created them. Here we only keep the
@@ -259,6 +360,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
           first_name:               firstName,
           last_name:                lastName,
           started_at:               nowIso(),
+          last_activity_at:         nowIso(),
         },
         { onlyIfNull: ['original_source_platform', 'started_at'] }
       );

@@ -11,8 +11,10 @@ const webhook_1 = require("./handlers/webhook");
 const telegram_1 = require("./handlers/telegram");
 const stage_1 = require("./handlers/stage");
 const contact_1 = require("./handlers/contact");
+const admin_1 = require("./handlers/admin");
 const env_1 = require("./env");
 const pending_1 = require("./pending");
+const reminders_1 = require("./reminders");
 (0, env_1.assertEnv)();
 const app = (0, express_1.default)();
 app.disable('x-powered-by');
@@ -61,6 +63,7 @@ app.post('/verify/deposited', deposited_1.verifyDeposited);
 app.post('/webhook/message', webhook_1.handleNewMessage);
 app.post('/webhook/telegram', telegram_1.handleTelegramWebhook);
 app.post('/webhook/contact', contact_1.handleContactUpdate);
+app.post('/admin/resend-join', admin_1.resendJoin);
 app.get('/verify/channel', (_req, res) => {
     res.status(405).json({ ok: false, error: 'Method Not Allowed. Use POST /verify/channel' });
 });
@@ -102,4 +105,5 @@ const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? '0.0.0.0';
 app.listen(port, host, () => {
     console.log(`[server] listening on http://${host}:${port}`);
+    (0, reminders_1.startReminders)();
 });
