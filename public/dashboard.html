@@ -4,38 +4,43 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Founder Circle funnel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=TikTok+Sans:wght@400;500;600;700&family=Bricolage+Grotesque:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root{
-    --bg:#F1F3F6; --panel:#FFFFFF; --ink:#132033; --muted:#6B7688; --line:#DDE2EA;
-    --joined:#1E9BD7; --link:#6FB7E0; --answer:#B9C7D6; --dropped:#C9573F; --faint:#EEF6FB;
+    --bg:#0B0B0D; --panel:#16161C; --line:#2A2A33; --ink:#F5F5F0; --muted:#D7D7DC; --ash:#5A5A63;
+    --lime:#AEFF02; --lime70:#C6FF4D; --lime40:#DDFF99; --purple:#4A2BAB; --purple70:#7B5BE0; --slate:#2A2A33;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Helvetica Neue",Helvetica,Arial,sans-serif}
-  a{color:inherit}
-  .wrap{max-width:1180px;margin:0 auto;padding:28px 24px 60px}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "TikTok Sans","Helvetica Neue",Arial,sans-serif}
+  .wrap{padding:28px 32px 60px}
   header{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;margin-bottom:22px}
-  h1{font-size:30px;font-weight:600;letter-spacing:-0.01em;margin:0}
+  h1{font-family:"Bricolage Grotesque","TikTok Sans",sans-serif;font-size:34px;font-weight:700;letter-spacing:-0.01em;margin:0}
   .sub{color:var(--muted);margin-top:4px}
-  .source{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .source{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
   input,textarea,button,select{font:inherit}
-  input,select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff;min-width:200px}
-  button{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:8px;padding:8px 14px;cursor:pointer}
-  button.quiet{background:#fff;color:var(--ink)}
-  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #9CD3F2;outline-offset:2px}
-  details{margin-top:8px;color:var(--muted)}
-  textarea{width:100%;height:110px;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px}
-  .status{color:var(--muted);font-size:14px;margin:6px 0 0}
+  input,select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--panel);color:var(--ink);min-width:200px}
+  select option{background:var(--panel)}
+  button{border:1px solid var(--lime);background:var(--lime);color:#0B0B0D;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600}
+  button.quiet{background:transparent;color:var(--ink);border-color:var(--line)}
+  button:hover{filter:brightness(1.06)}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--purple70);outline-offset:2px}
+  details{margin-top:8px;color:var(--muted);text-align:right}
+  textarea{width:100%;min-width:420px;height:110px;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px;background:var(--panel);color:var(--ink)}
+  .status{color:var(--muted);font-size:14px;margin:6px 0 0;text-align:right}
 
-  /* hero funnel */
   .funnel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 22px 18px}
-  .bands{display:flex;height:96px;border-radius:8px;overflow:hidden}
-  .band{display:flex;flex-direction:column;justify-content:flex-end;padding:10px 12px;color:#fff;min-width:0;transition:width .5s ease}
-  .band b{font-size:26px;font-weight:600;line-height:1}
-  .band span{font-size:13px;opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .b-dropped{background:var(--dropped)} .b-answer{background:#8FA5BB} .b-link{background:var(--link)} .b-joined{background:var(--joined)}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-top:16px}
-  .kpi b{display:block;font-size:24px;font-weight:600}
+  .bands{display:flex;height:110px;border-radius:8px;overflow:hidden}
+  .band{display:flex;flex-direction:column;justify-content:flex-end;padding:10px 14px;min-width:0;transition:width .5s ease}
+  .band b{font-size:30px;font-weight:700;line-height:1}
+  .band span{font-size:13px;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .b-joined{background:var(--lime);color:#0B0B0D}
+  .b-link{background:var(--lime40);color:#0B0B0D}
+  .b-answer{background:var(--slate);color:var(--ink)}
+  .b-dropped{background:var(--purple);color:var(--ink)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-top:18px}
+  .kpi b{display:block;font-size:26px;font-weight:700}
   .kpi span{color:var(--muted);font-size:13px}
   @media (prefers-reduced-motion:reduce){.band{transition:none}}
 
@@ -44,15 +49,17 @@
   .card h2{font-size:16px;font-weight:600;margin:0 0 2px}
   .card p{color:var(--muted);font-size:13px;margin:0 0 10px}
   .c12{grid-column:span 12}.c8{grid-column:span 8}.c6{grid-column:span 6}.c4{grid-column:span 4}
-  @media (max-width:900px){.c8,.c6,.c4{grid-column:span 12}}
-  canvas{width:100%!important;height:260px!important}
+  @media (max-width:1100px){.c8,.c6,.c4{grid-column:span 6}}
+  @media (max-width:760px){.c8,.c6,.c4{grid-column:span 12}}
+  canvas{width:100%!important;height:280px!important}
 
   table{width:100%;border-collapse:collapse;font-size:13.5px}
   th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
-  th{color:var(--muted);font-weight:500;position:sticky;top:0;background:#fff}
-  .tablewrap{overflow:auto;max-height:520px;border:1px solid var(--line);border-radius:10px}
-  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px}
-  .p-joined{background:var(--faint);color:#0B6FA6}.p-link{background:#FFF4EC;color:#B15A2E}.p-answer{background:#F1F3F6;color:#4B5768}
+  th{color:var(--muted);font-weight:500;position:sticky;top:0;background:var(--panel)}
+  tr:hover td{background:#1C1C24}
+  .tablewrap{overflow:auto;max-height:560px;border:1px solid var(--line);border-radius:10px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+  .p-joined{background:var(--lime);color:#0B0B0D}.p-link{background:var(--lime40);color:#0B0B0D}.p-answer{background:var(--purple);color:var(--ink)}
   .tools{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
   .empty{padding:40px;text-align:center;color:var(--muted)}
 </style>
@@ -62,11 +69,11 @@
   <header>
     <div>
       <h1>Founder Circle funnel</h1>
-      <div class="sub" id="range">No data loaded</div>
+      <div class="sub" id="range">Loading…</div>
     </div>
     <div>
       <div class="source">
-        <button id="refreshBtn" class="quiet">Refresh</button>
+        <button id="refreshBtn">Refresh</button>
       </div>
       <details>
         <summary>Or paste an export from the table</summary>
@@ -76,7 +83,6 @@
       <div class="status" id="status"></div>
     </div>
   </header>
-
   <section class="funnel" aria-label="Funnel">
     <div class="bands" id="bands"></div>
     <div class="kpis" id="kpis"></div>
@@ -112,6 +118,7 @@
 
 <script>
 const TZ='Asia/Dubai';
+Chart.defaults.color='#D7D7DC'; Chart.defaults.font.family='"TikTok Sans",sans-serif';
 let rows=[], charts={};
 const $=s=>document.querySelector(s);
 const fmt=n=>n.toLocaleString();
@@ -125,27 +132,21 @@ const src=r=>(r.original_source_platform||r.source_platform||'no code').toString
 
 function setStatus(t){$('#status').textContent=t}
 
-const clock=d=>new Date(d).toLocaleString('en-GB',{timeZone:TZ,day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
-
-// The server holds the Supabase key and does the reading; this page only asks it for the rows.
-async function loadData(fresh){
-  $('#refreshBtn').disabled=true;
-  setStatus(fresh?'Refreshing…':'Loading…');
+async function loadLive(fresh){
+  setStatus('Loading…');
   try{
-    const res=await fetch('/dashboard/data'+(fresh?'?fresh=1':''),{headers:{Accept:'application/json'},cache:'no-store'});
-    if(!res.ok) throw new Error(res.status+' '+(await res.text()).slice(0,200));
-    const payload=await res.json();
-    rows=Array.isArray(payload.rows)?payload.rows:[];
-    render();
-    setStatus(fmt(rows.length)+' rows, loaded '+clock(payload.loaded_at||Date.now()));
+    const res=await fetch('/dashboard/data'+(fresh?'?fresh=1':''),{credentials:'same-origin'});
+    if(!res.ok) throw new Error(res.status+' '+await res.text());
+    const j=await res.json(); rows=j.rows||[]; render();
+    setStatus(fmt(rows.length)+' rows, loaded '+new Date(j.loaded_at||Date.now()).toLocaleString('en-GB',{timeZone:TZ,day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}));
   }catch(e){setStatus('Could not load: '+e.message)}
-  finally{$('#refreshBtn').disabled=false}
 }
+loadLive(false);
 function loadPaste(){
   try{ const j=JSON.parse($('#paste').value); rows=Array.isArray(j)?j:(j.data||[]); render(); setStatus('Pasted export: '+fmt(rows.length)+' rows'); }
   catch(e){ setStatus('That is not valid JSON. Copy the whole export, including the square brackets.') }
 }
-$('#refreshBtn').onclick=()=>loadData(true); $('#pasteBtn').onclick=loadPaste;
+$('#refreshBtn').onclick=()=>loadLive(true); $('#pasteBtn').onclick=loadPaste;
 ['search','stageFilter','sourceFilter'].forEach(id=>$('#'+id).addEventListener('input',renderTable));
 $('#csvBtn').onclick=downloadCsv;
 
@@ -181,28 +182,28 @@ function render(){
     if(r.joined_at){const k=dayKey(r.joined_at);days[k]=days[k]||{s:0,j:0};days[k].j++} });
   const dk=Object.keys(days).sort();
   chart('daily','line',{labels:dk.map(d=>day(d)),datasets:[
-    {label:'Started',data:dk.map(k=>days[k].s),borderColor:'#8FA5BB',backgroundColor:'#8FA5BB',tension:.3},
-    {label:'Joined',data:dk.map(k=>days[k].j),borderColor:'#1E9BD7',backgroundColor:'#1E9BD7',tension:.3}]});
+    {label:'Started',data:dk.map(k=>days[k].s),borderColor:'#7B5BE0',backgroundColor:'#7B5BE0',tension:.3},
+    {label:'Joined',data:dk.map(k=>days[k].j),borderColor:'#AEFF02',backgroundColor:'#AEFF02',tension:.3}]});
 
   // stops
   const stopOrder=['Welcome / name','Country','Age','Interest','Phone','Email'];
   const stops={}; answering.forEach(r=>{const s=stopOf(r);stops[s]=(stops[s]||0)+1});
-  chart('stops','bar',{labels:stopOrder,datasets:[{label:'People',data:stopOrder.map(s=>stops[s]||0),backgroundColor:'#C9573F'}]},{indexAxis:'y'});
+  chart('stops','bar',{labels:stopOrder,datasets:[{label:'People',data:stopOrder.map(s=>stops[s]||0),backgroundColor:'#7B5BE0'}]},{indexAxis:'y'});
 
   // sources
   const bySrc={}; rows.forEach(r=>{const s=src(r);bySrc[s]=bySrc[s]||{s:0,j:0};bySrc[s].s++;if(r.joined_at)bySrc[s].j++});
   const sk=Object.keys(bySrc).sort((a,b)=>bySrc[b].s-bySrc[a].s);
-  chart('sources','bar',{labels:sk,datasets:[{label:'Started',data:sk.map(k=>bySrc[k].s),backgroundColor:'#8FA5BB'},{label:'Joined',data:sk.map(k=>bySrc[k].j),backgroundColor:'#1E9BD7'}]});
-  chart('rates','bar',{labels:sk,datasets:[{label:'Join rate %',data:sk.map(k=>bySrc[k].s?Math.round(bySrc[k].j/bySrc[k].s*100):0),backgroundColor:'#1E9BD7'}]},{scales:{y:{min:0,max:100}}});
+  chart('sources','bar',{labels:sk,datasets:[{label:'Started',data:sk.map(k=>bySrc[k].s),backgroundColor:'#5A5A63'},{label:'Joined',data:sk.map(k=>bySrc[k].j),backgroundColor:'#AEFF02'}]});
+  chart('rates','bar',{labels:sk,datasets:[{label:'Join rate %',data:sk.map(k=>bySrc[k].s?Math.round(bySrc[k].j/bySrc[k].s*100):0),backgroundColor:'#AEFF02'}]},{scales:{y:{min:0,max:100}}});
 
   // members breakdowns
   const cnt=(arr,f)=>{const o={};arr.forEach(r=>{const v=f(r);if(v)o[v]=(o[v]||0)+1});return o};
   const ages=cnt(joined,r=>r.age_bracket); const ao=['Under 18','18 to 24','25 to 34','35 to 44','45 above'];
-  chart('age','bar',{labels:ao,datasets:[{label:'Members',data:ao.map(a=>ages[a]||0),backgroundColor:'#1E9BD7'}]});
+  chart('age','bar',{labels:ao,datasets:[{label:'Members',data:ao.map(a=>ages[a]||0),backgroundColor:'#AEFF02'}]});
   const ints=cnt(joined,r=>r.interest); const io=Object.keys(ints).sort((a,b)=>ints[b]-ints[a]);
-  chart('interest','bar',{labels:io,datasets:[{label:'Members',data:io.map(i=>ints[i]),backgroundColor:'#1E9BD7'}]},{indexAxis:'y'});
+  chart('interest','bar',{labels:io,datasets:[{label:'Members',data:io.map(i=>ints[i]),backgroundColor:'#AEFF02'}]},{indexAxis:'y'});
   const ctry=cnt(joined,r=>r.country&&r.country.trim().replace(/\b\w/g,c=>c.toUpperCase())); const co=Object.keys(ctry).sort((a,b)=>ctry[b]-ctry[a]).slice(0,10);
-  chart('country','bar',{labels:co,datasets:[{label:'Members',data:co.map(c=>ctry[c]),backgroundColor:'#1E9BD7'}]},{indexAxis:'y'});
+  chart('country','bar',{labels:co,datasets:[{label:'Members',data:co.map(c=>ctry[c]),backgroundColor:'#AEFF02'}]},{indexAxis:'y'});
 
   const sf=$('#sourceFilter'); sf.innerHTML='<option value="">Every source</option>'+sk.map(s=>`<option value="${s}">${s}</option>`).join('');
   renderTable();
@@ -211,8 +212,8 @@ function render(){
 function chart(id,type,data,extra={}){
   if(charts[id]) charts[id].destroy();
   charts[id]=new Chart($('#'+id),{type,data,options:Object.assign({responsive:true,maintainAspectRatio:false,
-    plugins:{legend:{display:data.datasets.length>1,position:'bottom'}},
-    scales:{x:{grid:{display:false}},y:{grid:{color:'#EEF1F5'},ticks:{precision:0}}}},extra)});
+    plugins:{legend:{display:data.datasets.length>1,position:'bottom',labels:{color:'#D7D7DC'}}},
+    scales:{x:{grid:{display:false},ticks:{color:'#D7D7DC'}},y:{grid:{color:'#2A2A33'},ticks:{precision:0,color:'#D7D7DC'}}}},extra)});
 }
 
 function filtered(){
@@ -234,8 +235,6 @@ function downloadCsv(){
   const csv=[cols.join(',')].concat(data.map(r=>cols.map(c=>`"${String(r[c]??'').replace(/"/g,'""')}"`).join(','))).join('\n');
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='founder_circle_members.csv'; a.click();
 }
-
-loadData(false);
 </script>
 </body>
 </html>
