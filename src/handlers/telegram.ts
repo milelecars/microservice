@@ -4,12 +4,8 @@ import { requireEnv, errText } from '../env';
 import { closeTalk, contactStatusFor, setContactStatus } from '../kommo';
 import { pushPending } from '../pending';
 import { tagResumedAfterReminder } from '../reminders';
-import {
-  answerCallbackQuery,
-  getChatMemberStatus,
-  isInChannelStatus,
-} from '../telegram-api';
-import { sendJoinCard, sendJoinInvite, sendJoinRetry } from './join';
+import { answerCallbackQuery, sendJoinMessage } from '../telegram-api';
+import { markLinkSent } from './join';
 import { getLead, updateLead, upsertLead, nowIso } from './supabase';
 import { welcomeUser } from './welcome';
 
@@ -52,8 +48,7 @@ interface TgUpdate {
   chat_member?: TgChatMemberUpdated;
 }
 
-/** callback_data of our own buttons. */
-const JOINED_CALLBACK = 'fc_joined';
+/** callback_data of the Continue button on a reminder. */
 const CONTINUE_CALLBACK = 'fc_continue';
 
 // Kommo's Telegram hook for @FounderCircleAdminBot. Falls back to the literal
@@ -89,6 +84,9 @@ async function forwardToKommo(update: unknown): Promise<void> {
 }
 
 // ── "Continue" tap: the reminder's button, which resends the join card ────────
+//
+// Joining is picked up by the chat_member event, so this is the only callback
+// the bot still puts in front of anyone.
 
 async function handleContinueTap(query: TgCallbackQuery): Promise<void> {
   if (query.id) await answerCallbackQuery(query.id);
@@ -108,41 +106,9 @@ async function handleContinueTap(query: TgCallbackQuery): Promise<void> {
   }
 
   await tagResumedAfterReminder(row);
-  await sendJoinCard(telegramUserId, row);
+  await sendJoinMessage(telegramUserId);
 
   console.log('[resume] TG', telegramUserId, '-> join card resent');
-}
-
-// ── "I've Joined" tap ─────────────────────────────────────────────────────────
-
-async function handleJoinedTap(query: TgCallbackQuery): Promise<void> {
-  if (query.id) await answerCallbackQuery(query.id);
-
-  const telegramUserId = query.from?.id;
-  if (!telegramUserId) {
-    console.warn('[join] callback without from.id - skipping');
-    return;
-  }
-
-  await updateLead(telegramUserId, { last_activity_at: nowIso() });
-
-  const status = await getChatMemberStatus(requireEnv('CHANNEL_ID'), telegramUserId);
-  console.log('[join] I have joined tapped | TG user:', telegramUserId, '| status:', status ?? '-');
-
-  if (isInChannelStatus(status)) {
-    await welcomeUser(telegramUserId);
-    return;
-  }
-
-  await sendJoinRetry(telegramUserId);
-
-  const existing = await getLead(telegramUserId);
-
-  if (existing) {
-    await updateLead(telegramUserId, {
-      join_check_failures: (existing.join_check_failures ?? 0) + 1,
-    });
-  }
 }
 
 // ── chat_member updates (channel join / leave) ────────────────────────────────
@@ -201,11 +167,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         return;
       }
 
-      // Our own buttons: handled here, never forwarded to Kommo
-      if (body?.callback_query?.data === JOINED_CALLBACK) {
-        await handleJoinedTap(body.callback_query);
-        return;
-      }
+      // Our own button: handled here, never forwarded to Kommo
       if (body?.callback_query?.data === CONTINUE_CALLBACK) {
         await handleContinueTap(body.callback_query);
         return;
@@ -261,11 +223,6 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         }
       }
 
-      // Got the link but never made it in: any message brings the card back
-      if (existing?.link_sent_at && !existing.joined_at && !existing.in_channel) {
-        await sendJoinInvite(telegramUserId, existing);
-      }
-
       // Forward to Kommo (the hook URL carries the bot token - never log it)
       const forwardBody = isStartCommand
         ? { ...body, message: { ...msg, text: 'Hi', entities: undefined } }
@@ -305,12 +262,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
       console.log('[telegram] row upserted | TG user:', telegramUserId);
 
-      // Greeting-only: the card goes out on /start, with nothing to answer
-      // first. A row that already has link_sent_at got its card long ago —
-      // the "bring the card back" step above covers those.
+      // Kommo's "Greet and Join" bot greets and sends the Join button itself
+      // on every new conversation, so the service sends nothing here — it only
+      // writes down that this person now has the link.
       if (isStartCommand && !existing?.link_sent_at) {
-        await sendJoinCard(telegramUserId);
-        console.log('[telegram] join card sent on /start | TG user:', telegramUserId);
+        await markLinkSent(telegramUserId);
       }
     } catch (err) {
       console.error('[telegram] error:', errText(err));

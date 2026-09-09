@@ -5,7 +5,6 @@ exports.handleContactUpdate = handleContactUpdate;
 const env_1 = require("../env");
 const kommo_1 = require("../kommo");
 const identity_1 = require("./identity");
-const join_1 = require("./join");
 const supabase_1 = require("./supabase");
 /**
  * Copy the contact's name and the lead's tags onto the Supabase row, and keep
@@ -43,14 +42,10 @@ async function syncContactAnswers(contactId, leadId, telegramUserId) {
         await (0, supabase_1.insertLead)(record);
         console.log('[answers] TG', telegramUserId, '| row created');
         await syncStatusField(contactId, status, record);
-        if (record.link_sent_at)
-            await inviteToChannel(telegramUserId);
         return;
     }
     const changes = (0, supabase_1.diffLead)(existing, data, ['link_sent_at']);
     const changed = Object.keys(changes);
-    // link_sent_at only appears in the diff the first time the tag shows up
-    const linkJustSent = changes.link_sent_at !== undefined && !existing.join_message_sent;
     await syncStatusField(contactId, status, { ...existing, ...changes });
     if (changed.length === 0) {
         console.log('[answers] TG', telegramUserId, '| no change');
@@ -58,8 +53,6 @@ async function syncContactAnswers(contactId, leadId, telegramUserId) {
     }
     await (0, supabase_1.updateLead)(telegramUserId, changes);
     console.log('[answers] TG', telegramUserId, '| updated:', changed.join(', '));
-    if (linkJustSent)
-        await inviteToChannel(telegramUserId);
 }
 /**
  * Keep contact field 1003176 in step with the row. The greeting sends the card
@@ -71,12 +64,6 @@ async function syncStatusField(contactId, current, row) {
     if (!desired || desired === current)
         return;
     await (0, kommo_1.setContactStatus)(contactId, desired);
-}
-/** Send the join invitation once, and remember that we did. */
-async function inviteToChannel(telegramUserId) {
-    const sent = await (0, join_1.sendJoinInvite)(telegramUserId);
-    if (sent)
-        await (0, supabase_1.updateLead)(telegramUserId, { join_message_sent: true });
 }
 /** The lead this contact is linked to inside the Founder Circle pipeline. */
 async function findPipelineLead(contact) {

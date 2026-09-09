@@ -19,12 +19,6 @@ const STAGE_DELAYS_MS = [
     24 * 60 * 60 * 1000, // stage 2 → 24 hours after the second
     72 * 60 * 60 * 1000, // stage 3 → 72 hours after the third
 ];
-const STAGE_TEXTS = [
-    'Still here? 👋 You were about a minute away from Founder Circle. Tap Continue and I pick up exactly where we left off.',
-    'Quick one 🙂 Your spot in Founder Circle is still open. A couple more taps and you are in.',
-    'You started yesterday, then life happened. It happens. Founder Circle is where I show the real numbers behind Milele, nothing polished. Tap Continue when you have a minute.',
-    'Last nudge, then I go quiet. If you want the behind the scenes, unfiltered, tap Continue. If not, no hard feelings.',
-];
 exports.MAX_STAGE = STAGE_DELAYS_MS.length;
 // ── Kommo tags, so the pipeline shows what the bot has been doing ─────────────
 /** Tag for the nudge that just went out, from the stage it was sent at. */
@@ -130,7 +124,9 @@ async function sendStage(row) {
     if (!telegramUserId)
         return;
     const stage = row.reminder_stage ?? 0;
-    const result = await (0, telegram_api_1.sendReminder)(telegramUserId, STAGE_TEXTS[stage]);
+    // The one card the service still sends: the greeting-style text and the
+    // channel link, the same at every rung of the ladder.
+    const result = await (0, telegram_api_1.sendJoinMessage)(telegramUserId);
     if (result.blocked) {
         await (0, supabase_1.updateLead)(telegramUserId, { reminder_stage: exports.MAX_STAGE });
         await tagLead(row, BLOCKED_TAG);

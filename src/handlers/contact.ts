@@ -13,7 +13,6 @@ import {
   tagNames,
 } from '../kommo';
 import { resolveTelegramId } from './identity';
-import { sendJoinInvite } from './join';
 import { getLead, insertLead, updateLead, diffLead, nowIso, LeadRecord } from './supabase';
 
 // Kommo account webhooks post form-encoded contacts[add|update][0][id]
@@ -70,15 +69,11 @@ export async function syncContactAnswers(
     await insertLead(record);
     console.log('[answers] TG', telegramUserId, '| row created');
     await syncStatusField(contactId, status, record);
-    if (record.link_sent_at) await inviteToChannel(telegramUserId);
     return;
   }
 
   const changes = diffLead(existing, data, ['link_sent_at']);
   const changed = Object.keys(changes);
-
-  // link_sent_at only appears in the diff the first time the tag shows up
-  const linkJustSent = changes.link_sent_at !== undefined && !existing.join_message_sent;
 
   await syncStatusField(contactId, status, { ...existing, ...changes });
 
@@ -89,8 +84,6 @@ export async function syncContactAnswers(
 
   await updateLead(telegramUserId, changes);
   console.log('[answers] TG', telegramUserId, '| updated:', changed.join(', '));
-
-  if (linkJustSent) await inviteToChannel(telegramUserId);
 }
 
 /**
@@ -106,12 +99,6 @@ async function syncStatusField(
   const desired = contactStatusFor(row);
   if (!desired || desired === current) return;
   await setContactStatus(contactId, desired);
-}
-
-/** Send the join invitation once, and remember that we did. */
-async function inviteToChannel(telegramUserId: string | number): Promise<void> {
-  const sent = await sendJoinInvite(telegramUserId);
-  if (sent) await updateLead(telegramUserId, { join_message_sent: true });
 }
 
 /** The lead this contact is linked to inside the Founder Circle pipeline. */

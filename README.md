@@ -7,8 +7,10 @@ It relays Telegram updates into Kommo's Salesbot, stamps the lead with the Teleg
 traffic source, checks Founder Circle channel membership, and mirrors everything Kommo knows about
 a lead into the Supabase `leads` table.
 
-**Greeting-only.** The bot asks nothing — no name, country, age, interest, phone or email. It
-greets, sends the join card, verifies the join and welcomes.
+**Greeting-only.** The bot asks nothing — no name, country, age, interest, phone or email.
+Kommo's **Greet and Join** bot greets and sends the *Join Founder Circle* button itself on every new
+conversation. The service never sends that card on `/start`: it records the state, nudges whoever
+has not joined, and welcomes them when they do.
 
 It also still serves the two Weex checks used by the older funnel (`/verify/registered`,
 `/verify/deposited`) — those are untouched.
@@ -21,16 +23,17 @@ It also still serves the two Weex checks used by the older funnel (`/verify/regi
    `Hi` so the Salesbot starts cleanly.
 4. It resolves the Kommo lead, patches `Telegram User ID`, `Telegram Username` and
    `Source Platform` onto it, and inserts/updates the Supabase row.
-5. On the same `/start`, and without waiting for anything, the service stamps `link_sent_at`,
-   `join_message_sent` and the `Link sent` tag, then sends the join card from the bot — a
-   *Join Founder Circle* link button and an *I've Joined* button.
+5. Kommo's **Greet and Join** bot answers with the greeting and the *Join Founder Circle* button.
+   The service sends nothing of its own: on that same `/start` it stamps `link_sent_at`,
+   `join_message_sent` and the `Link sent` tag, lifts any leftover channel ban
+   (`unbanChatMember`, `only_if_banned`) so the link works, and writes `link sent` into contact
+   field `1003176`.
 6. Kommo's "contact added/updated" webhook hits `POST /webhook/contact`, which keeps the name, the
-   tags and the Kommo ids in Supabase, and writes `link sent` into contact field `1003176` once
-   Kommo has a contact to write it to.
-7. Tapping *I've Joined* hits `POST /webhook/telegram` as a `callback_query`: the service calls
-   `getChatMember` and either runs the welcome routine or asks the person to join first and try
-   again. A `chat_member` update from the channel runs the same welcome routine, whichever
-   arrives first.
+   tags and the Kommo ids in Supabase, and writes `link sent` into `1003176` once Kommo has a
+   contact to write it to.
+7. The join itself is detected automatically: the channel sends a `chat_member` update to
+   `POST /webhook/telegram`, which runs the welcome routine. There is no *I've Joined* button and
+   nothing for the person to confirm.
 8. The welcome routine sends the welcome message, writes `joined_at` / `in_channel` /
    `welcome_sent`, moves the Kommo lead to **Joined Channel**, swaps the tag, sets the contact
    status to `joined` and closes the talk. `POST /webhook/stage` still records stage changes made
@@ -40,14 +43,14 @@ It also still serves the two Weex checks used by the older funnel (`/verify/regi
 
 | Endpoint | Called by | What it does |
 |---|---|---|
-| `POST /webhook/telegram` | Telegram | Forwards updates to Kommo, upserts Supabase, sends the join card on `/start` and brings it back for anyone still outside, handles the *I've Joined* and *Continue* taps and `chat_member` join/leave |
+| `POST /webhook/telegram` | Telegram | Forwards updates to Kommo, upserts Supabase, marks the link as sent on `/start`, handles the *Continue* tap on a reminder and `chat_member` join/leave |
 | `POST /webhook/contact` | Kommo (contact added / updated) | Syncs the contact's name, tags and status field into Supabase |
 | `POST /webhook/stage` | Kommo (lead status changed) | Syncs `kommo_stage`, sets `joined_at` / `lost_at` |
 | `POST /webhook/message` | Kommo (incoming message) | Keyword → tag rules on the lead |
-| `POST /verify/channel` | Kommo Salesbot (`widget_request`) | Telegram channel membership via `getChatMember`. Still works, but no longer on the main path |
+| `POST /verify/channel` | Kommo Salesbot (`widget_request`) | Telegram channel membership via `getChatMember`. Left in place so nothing breaks if it is called, but no longer on the path — `chat_member` does this now |
 | `POST /verify/registered` | Kommo Salesbot | Weex UID exists under the affiliate account |
 | `POST /verify/deposited` | Kommo Salesbot | Weex UID has deposited |
-| `POST /admin/resend-join` | You, by hand | One-time catch-up: resends the join card to everyone still outside. Needs `X-Admin-Key` |
+| `POST /admin/resend-join` | You, by hand | One-time catch-up: sends the join card to everyone still outside. The one path outside the reminder loop that sends a card, and it only ever runs when you call it. Needs `X-Admin-Key` |
 | `GET /dashboard` | You, in a browser | The funnel dashboard. Basic auth |
 | `GET /dashboard/data` | The dashboard page | Every `founder_circle_members` row as JSON, minus the private columns |
 | `GET /debug/pending` | You, by hand | What the pending-match table is holding right now |
@@ -148,8 +151,8 @@ read or written.
 `102006163` Pending FTD, `102006167` Upsell, `102006171` Lost. Stage logic matches on **status id**,
 never on the name.
 
-**Tags** — `Link sent` goes on with the join card, at greeting time; `Joined Channel` is set after the
-membership check. The reminder loop adds `Reminder 1 sent` … `Reminder 4 sent` as each nudge goes
+**Tags** — `Link sent` goes on at greeting time, when Kommo's bot sends the button; `Joined Channel`
+is set when the `chat_member` join arrives. The reminder loop adds `Reminder 1 sent` … `Reminder 4 sent` as each nudge goes
 out, `Bot blocked` instead when Telegram answers 403, and `Resumed after reminder` the first time a
 nudged person comes back. All of these are appended — existing tags are never removed.
 
@@ -177,9 +180,9 @@ Keyed by `telegram_user_id`.
 | `left_at` | `chat_member`, on leave or kick |
 | `lost_at` | stage, on Lost |
 | `in_channel` | stage, channel, `chat_member` |
-| `join_check_failures` | channel and the "I've Joined" tap, incremented on every failed check |
-| `join_message_sent` | telegram — the join card went out once |
-| `join_message_sent_at` | join step — last join message; automatic sends are throttled to one a minute, the *I've Joined* retry always sends |
+| `join_check_failures` | `/verify/channel`, incremented on every failed check |
+| `join_message_sent` | telegram — the greeting card went out once (Kommo sends it) |
+| `join_message_sent_at` | nothing writes it any more — left from the era when the service threw the card |
 | `welcome_sent` | welcome routine — the welcome went out once |
 | `last_activity_at` | telegram — every message or button tap from the person |
 | `reminder_stage` | reminders — 0-4, how many nudges have gone out |
@@ -205,15 +208,17 @@ update public.founder_circle_members
 ## Reminders
 
 A loop started with the server checks every 5 minutes for rows that have `link_sent_at` but no
-`joined_at`, and nudges them with a **Continue ▶️** button. Since the card goes out with the
-greeting, that is everyone who pressed Start and has not joined. The ladder is 2 h → 8 h → 24 h → 72 h, measured from the last sign of life
+`joined_at`, and sends them the join card — *Still one tap away 👋 Tap Join Founder Circle and you
+are in.* under a single **Join Founder Circle** link button. Since Kommo's greeting sets
+`link_sent_at`, that is everyone who pressed Start and has not joined. **This is the only place the
+service sends a card on its own**, so the person never gets one on top of Kommo's greeting. The ladder is 2 h → 8 h → 24 h → 72 h, measured from the last sign of life
 (`last_activity_at`, or `reminder_sent_at` once we have nudged), so any reply resets the clock and
 four reminders is the maximum. Nothing is sent between 23:00 and 08:00 in the person's own time —
 guessed from their phone's dialling code, falling back to Asia/Dubai — the row is simply picked up
 on a later run. Someone who has blocked the bot is moved straight to stage 4.
 
-Tapping **Continue** simply sends the join card again. `/start` does the same for anyone who somehow
-has no `link_sent_at` yet.
+Nudges sent before this change carry a **Continue ▶️** button; tapping it sends the join card
+again, so those messages keep working. Nothing new carries that button.
 
 ### One-time catch-up
 

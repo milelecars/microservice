@@ -3,16 +3,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WELCOME_TEXT = exports.NOT_IN_CHANNEL_TEXT = exports.JOIN_TEXT = void 0;
+exports.WELCOME_TEXT = exports.JOIN_TEXT = void 0;
 exports.inviteLink = inviteLink;
 exports.joinKeyboard = joinKeyboard;
 exports.sendMessageResult = sendMessageResult;
 exports.sendMessage = sendMessage;
 exports.unbanFromChannel = unbanFromChannel;
 exports.sendJoinMessage = sendJoinMessage;
-exports.sendNotJoinedMessage = sendNotJoinedMessage;
-exports.continueKeyboard = continueKeyboard;
-exports.sendReminder = sendReminder;
 exports.answerCallbackQuery = answerCallbackQuery;
 exports.getChatMemberStatus = getChatMemberStatus;
 exports.isInChannelStatus = isInChannelStatus;
@@ -23,17 +20,15 @@ const DEFAULT_INVITE_LINK = 'https://t.me/+PSbwbTVOCeU0NWJk';
 function inviteLink() {
     return process.env.CHANNEL_INVITE_LINK || DEFAULT_INVITE_LINK;
 }
-/** Join + confirm buttons, shown with the join message and the retry. */
+/** The one button under the card: straight into the channel. */
 function joinKeyboard() {
     return {
         inline_keyboard: [
             [{ text: 'Join Founder Circle', url: inviteLink() }],
-            [{ text: "✅ I've Joined", callback_data: 'fc_joined' }],
         ],
     };
 }
-exports.JOIN_TEXT = 'You did it. 🎉 Tap Join Founder Circle, and once you are in, tap I\'ve Joined so I can welcome you.';
-exports.NOT_IN_CHANNEL_TEXT = 'I looked, but I cannot see you in the channel yet. No stress, it happens. Join first, then tap I\'ve Joined again.';
+exports.JOIN_TEXT = 'Still one tap away 👋 Tap Join Founder Circle and you are in.';
 exports.WELCOME_TEXT = 'You are in. Welcome to Founder Circle! 🙌\n\n' +
     'You are now inside my private circle, the part that is not open to the public. ' +
     'This is where I share the real numbers, the real decisions and the things that never make it to the feed. Unfiltered.\n\n' +
@@ -80,26 +75,19 @@ async function unbanFromChannel(telegramUserId) {
         // Ignored on purpose: the bot may not be an admin, or the person was never banned
     }
 }
-/** The join invitation, sent once the email has been accepted. */
+/**
+ * The join card. Kommo's own "Greet and Join" bot sends the greeting and this
+ * button on every new conversation, so the service only sends the card as a
+ * nudge: the reminder ladder, and the Continue button on nudges already out
+ * there. The unban first is what makes the link work for someone an admin
+ * once removed from the channel.
+ */
 async function sendJoinMessage(telegramUserId) {
     await unbanFromChannel(telegramUserId);
-    const sent = await sendMessage(telegramUserId, exports.JOIN_TEXT, joinKeyboard());
-    if (sent)
-        console.log('[join] message sent to TG', telegramUserId);
-    return sent;
-}
-/** Shown when "I've Joined" was tapped but the person is not in the channel. */
-async function sendNotJoinedMessage(telegramUserId) {
-    await unbanFromChannel(telegramUserId);
-    return sendMessage(telegramUserId, exports.NOT_IN_CHANNEL_TEXT, joinKeyboard());
-}
-/** The single button under a reminder. */
-function continueKeyboard() {
-    return { inline_keyboard: [[{ text: 'Continue ▶️', callback_data: 'fc_continue' }]] };
-}
-/** A reminder for someone who stopped halfway through the questions. */
-async function sendReminder(telegramUserId, text) {
-    return sendMessageResult(telegramUserId, text, continueKeyboard());
+    const result = await sendMessageResult(telegramUserId, exports.JOIN_TEXT, joinKeyboard());
+    if (result.ok)
+        console.log('[join] card sent to TG', telegramUserId);
+    return result;
 }
 /** Stop the button's spinner. Failures here are cosmetic. */
 async function answerCallbackQuery(callbackQueryId, text) {

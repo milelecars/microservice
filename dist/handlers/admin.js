@@ -43,7 +43,7 @@ async function resendJoin(req, res) {
                 res.status(404).json({ ok: false, error: 'No row for that telegram_user_id' });
                 return;
             }
-            const sent = await (0, telegram_api_1.sendJoinMessage)(requested.telegram_user_id);
+            const { ok: sent } = await (0, telegram_api_1.sendJoinMessage)(requested.telegram_user_id);
             console.log('[admin] join message resent to TG', requested.telegram_user_id, '| sent:', sent);
             res.status(200).json({ ok: true, count: sent ? 1 : 0, sent });
             return;

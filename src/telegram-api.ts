@@ -18,21 +18,16 @@ export interface ReplyMarkup {
   inline_keyboard: InlineButton[][];
 }
 
-/** Join + confirm buttons, shown with the join message and the retry. */
+/** The one button under the card: straight into the channel. */
 export function joinKeyboard(): ReplyMarkup {
   return {
     inline_keyboard: [
       [{ text: 'Join Founder Circle', url: inviteLink() }],
-      [{ text: "✅ I've Joined", callback_data: 'fc_joined' }],
     ],
   };
 }
 
-export const JOIN_TEXT =
-  'You did it. 🎉 Tap Join Founder Circle, and once you are in, tap I\'ve Joined so I can welcome you.';
-
-export const NOT_IN_CHANNEL_TEXT =
-  'I looked, but I cannot see you in the channel yet. No stress, it happens. Join first, then tap I\'ve Joined again.';
+export const JOIN_TEXT = 'Still one tap away 👋 Tap Join Founder Circle and you are in.';
 
 export const WELCOME_TEXT =
   'You are in. Welcome to Founder Circle! 🙌\n\n' +
@@ -107,28 +102,18 @@ export async function unbanFromChannel(telegramUserId: number | string): Promise
   }
 }
 
-/** The join invitation, sent once the email has been accepted. */
-export async function sendJoinMessage(telegramUserId: number | string): Promise<boolean> {
+/**
+ * The join card. Kommo's own "Greet and Join" bot sends the greeting and this
+ * button on every new conversation, so the service only sends the card as a
+ * nudge: the reminder ladder, and the Continue button on nudges already out
+ * there. The unban first is what makes the link work for someone an admin
+ * once removed from the channel.
+ */
+export async function sendJoinMessage(telegramUserId: number | string): Promise<SendResult> {
   await unbanFromChannel(telegramUserId);
-  const sent = await sendMessage(telegramUserId, JOIN_TEXT, joinKeyboard());
-  if (sent) console.log('[join] message sent to TG', telegramUserId);
-  return sent;
-}
-
-/** Shown when "I've Joined" was tapped but the person is not in the channel. */
-export async function sendNotJoinedMessage(telegramUserId: number | string): Promise<boolean> {
-  await unbanFromChannel(telegramUserId);
-  return sendMessage(telegramUserId, NOT_IN_CHANNEL_TEXT, joinKeyboard());
-}
-
-/** The single button under a reminder. */
-export function continueKeyboard(): ReplyMarkup {
-  return { inline_keyboard: [[{ text: 'Continue ▶️', callback_data: 'fc_continue' }]] };
-}
-
-/** A reminder for someone who stopped halfway through the questions. */
-export async function sendReminder(telegramUserId: number | string, text: string): Promise<SendResult> {
-  return sendMessageResult(telegramUserId, text, continueKeyboard());
+  const result = await sendMessageResult(telegramUserId, JOIN_TEXT, joinKeyboard());
+  if (result.ok) console.log('[join] card sent to TG', telegramUserId);
+  return result;
 }
 
 /** Stop the button's spinner. Failures here are cosmetic. */
