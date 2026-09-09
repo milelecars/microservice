@@ -133,6 +133,17 @@
 <script>
 const TZ='Asia/Dubai';
 Chart.defaults.color='#5A5A63'; Chart.defaults.font.family='"TikTok Sans",sans-serif';
+Chart.defaults.plugins.tooltip.backgroundColor='#16161C';
+Chart.defaults.plugins.tooltip.titleColor='#F5F5F0';
+Chart.defaults.plugins.tooltip.bodyColor='#F5F5F0';
+Chart.defaults.plugins.tooltip.borderColor='#AEFF02';
+Chart.defaults.plugins.tooltip.borderWidth=1;
+Chart.defaults.plugins.tooltip.padding=10;
+Chart.defaults.plugins.tooltip.cornerRadius=8;
+Chart.defaults.plugins.tooltip.displayColors=false;
+Chart.defaults.plugins.tooltip.titleFont={family:'"TikTok Sans",sans-serif',weight:'600',size:13};
+Chart.defaults.plugins.tooltip.bodyFont={family:'"TikTok Sans",sans-serif',size:13};
+Chart.defaults.interaction={mode:'index',intersect:false};
 let rows=[], charts={};
 const $=s=>document.querySelector(s);
 const fmt=n=>n.toLocaleString();
@@ -226,7 +237,7 @@ function render(){
 
 function chart(id,type,data,extra={}){
   if(charts[id]) charts[id].destroy();
-  charts[id]=new Chart($('#'+id),{type,data,options:Object.assign({responsive:true,maintainAspectRatio:false,
+  charts[id]=new Chart($('#'+id),{type,data,options:Object.assign({responsive:true,maintainAspectRatio:false,layout:{padding:{top:6}},
     plugins:{legend:{display:data.datasets.length>1,position:'bottom',labels:{color:'#5A5A63'}}},
     scales:{x:{grid:{display:false},ticks:{color:'#5A5A63'}},y:{grid:{color:'#EEEEF2'},ticks:{precision:0,color:'#5A5A63'}}}},extra)});
 }
