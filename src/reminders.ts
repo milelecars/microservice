@@ -1,4 +1,5 @@
 import { errText } from './env';
+import { addLeadTags } from './kommo';
 import { sendReminder } from './telegram-api';
 import { queryLeads, updateLead, nowIso, LeadRecord } from './handlers/supabase';
 
@@ -18,6 +19,34 @@ const STAGE_TEXTS = [
 ];
 
 export const MAX_STAGE = STAGE_DELAYS_MS.length;
+
+// ── Kommo tags, so the pipeline shows what the bot has been doing ─────────────
+
+/** Tag for the nudge that just went out, from the stage it was sent at. */
+const reminderTag = (stage: number) => `Reminder ${stage + 1} sent`;
+
+const BLOCKED_TAG = 'Bot blocked';
+export const RESUMED_TAG = 'Resumed after reminder';
+
+/** Tag the Kommo lead behind a row, keeping every tag it already has. */
+async function tagLead(row: LeadRecord, tag: string): Promise<void> {
+  if (!row.kommo_lead_id) {
+    console.log('[reminder] no kommo_lead_id for TG', row.telegram_user_id, '- tag', tag, 'skipped');
+    return;
+  }
+  const added = await addLeadTags(row.kommo_lead_id, [tag]);
+  if (added.length > 0) console.log('[reminder] tagged lead', row.kommo_lead_id, tag);
+}
+
+/**
+ * Mark a lead that came back after a nudge — the Continue tap, or a `/start`
+ * that resumes. Only for people who actually got a reminder, and only once:
+ * addLeadTags leaves a tag that is already there alone.
+ */
+export async function tagResumedAfterReminder(row: LeadRecord): Promise<void> {
+  if ((row.reminder_stage ?? 0) === 0) return;
+  await tagLead(row, RESUMED_TAG);
+}
 
 /** No messages before this hour or after it, local to the person. */
 const QUIET_UNTIL_HOUR = 8;
@@ -111,12 +140,14 @@ async function sendStage(row: LeadRecord): Promise<void> {
 
   if (result.blocked) {
     await updateLead(telegramUserId, { reminder_stage: MAX_STAGE });
+    await tagLead(row, BLOCKED_TAG);
     console.log('[reminder] TG', telegramUserId, 'blocked the bot - no more reminders');
     return;
   }
   if (!result.ok) return;
 
   await updateLead(telegramUserId, { reminder_stage: stage + 1, reminder_sent_at: nowIso() });
+  await tagLead(row, reminderTag(stage));
   console.log('[reminder] stage', stage, '-> TG', telegramUserId);
 }
 

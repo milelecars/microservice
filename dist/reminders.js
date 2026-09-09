@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MAX_STAGE = void 0;
+exports.RESUMED_TAG = exports.MAX_STAGE = void 0;
+exports.tagResumedAfterReminder = tagResumedAfterReminder;
 exports.timezoneFor = timezoneFor;
 exports.hourIn = hourIn;
 exports.isQuietHour = isQuietHour;
@@ -8,6 +9,7 @@ exports.isDue = isDue;
 exports.runRemindersOnce = runRemindersOnce;
 exports.startReminders = startReminders;
 const env_1 = require("./env");
+const kommo_1 = require("./kommo");
 const telegram_api_1 = require("./telegram-api");
 const supabase_1 = require("./handlers/supabase");
 /** How long after the last sign of life each reminder goes out. */
@@ -24,6 +26,31 @@ const STAGE_TEXTS = [
     'Last nudge, then I go quiet. If you want the behind the scenes, unfiltered, tap Continue. If not, no hard feelings.',
 ];
 exports.MAX_STAGE = STAGE_DELAYS_MS.length;
+// ── Kommo tags, so the pipeline shows what the bot has been doing ─────────────
+/** Tag for the nudge that just went out, from the stage it was sent at. */
+const reminderTag = (stage) => `Reminder ${stage + 1} sent`;
+const BLOCKED_TAG = 'Bot blocked';
+exports.RESUMED_TAG = 'Resumed after reminder';
+/** Tag the Kommo lead behind a row, keeping every tag it already has. */
+async function tagLead(row, tag) {
+    if (!row.kommo_lead_id) {
+        console.log('[reminder] no kommo_lead_id for TG', row.telegram_user_id, '- tag', tag, 'skipped');
+        return;
+    }
+    const added = await (0, kommo_1.addLeadTags)(row.kommo_lead_id, [tag]);
+    if (added.length > 0)
+        console.log('[reminder] tagged lead', row.kommo_lead_id, tag);
+}
+/**
+ * Mark a lead that came back after a nudge — the Continue tap, or a `/start`
+ * that resumes. Only for people who actually got a reminder, and only once:
+ * addLeadTags leaves a tag that is already there alone.
+ */
+async function tagResumedAfterReminder(row) {
+    if ((row.reminder_stage ?? 0) === 0)
+        return;
+    await tagLead(row, exports.RESUMED_TAG);
+}
 /** No messages before this hour or after it, local to the person. */
 const QUIET_UNTIL_HOUR = 8;
 const QUIET_FROM_HOUR = 23;
@@ -106,12 +133,14 @@ async function sendStage(row) {
     const result = await (0, telegram_api_1.sendReminder)(telegramUserId, STAGE_TEXTS[stage]);
     if (result.blocked) {
         await (0, supabase_1.updateLead)(telegramUserId, { reminder_stage: exports.MAX_STAGE });
+        await tagLead(row, BLOCKED_TAG);
         console.log('[reminder] TG', telegramUserId, 'blocked the bot - no more reminders');
         return;
     }
     if (!result.ok)
         return;
     await (0, supabase_1.updateLead)(telegramUserId, { reminder_stage: stage + 1, reminder_sent_at: (0, supabase_1.nowIso)() });
+    await tagLead(row, reminderTag(stage));
     console.log('[reminder] stage', stage, '-> TG', telegramUserId);
 }
 /** One pass over everyone who started but never got their link. */

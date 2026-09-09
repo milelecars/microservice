@@ -4,6 +4,7 @@ import { requireEnv, errText } from '../env';
 import { ContactStatus, closeTalk, setContactStatus } from '../kommo';
 import { pushPending } from '../pending';
 import { nextQuestionFor } from '../questions';
+import { tagResumedAfterReminder } from '../reminders';
 import {
   answerCallbackQuery,
   getChatMemberStatus,
@@ -141,6 +142,8 @@ async function handleContinueTap(query: TgCallbackQuery): Promise<void> {
     console.warn('[resume] no Supabase row for TG', telegramUserId, '- skipping');
     return;
   }
+
+  await tagResumedAfterReminder(row);
 
   const nextQuestion = nextQuestionFor(row);
 
@@ -311,6 +314,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       const existing = await getLead(telegramUserId);
 
       if (isStartCommand && existing) {
+        await tagResumedAfterReminder(existing);
+
         // statusFor() points Kommo at the question they stopped on, so /start
         // resumes instead of starting over.
         if (existing.kommo_contact_id) {

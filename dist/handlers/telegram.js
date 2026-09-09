@@ -9,6 +9,7 @@ const env_1 = require("../env");
 const kommo_1 = require("../kommo");
 const pending_1 = require("../pending");
 const questions_1 = require("../questions");
+const reminders_1 = require("../reminders");
 const telegram_api_1 = require("../telegram-api");
 const join_1 = require("./join");
 const supabase_1 = require("./supabase");
@@ -91,6 +92,7 @@ async function handleContinueTap(query) {
         console.warn('[resume] no Supabase row for TG', telegramUserId, '- skipping');
         return;
     }
+    await (0, reminders_1.tagResumedAfterReminder)(row);
     const nextQuestion = (0, questions_1.nextQuestionFor)(row);
     // Everything answered, they just never got in
     if (!nextQuestion) {
@@ -222,6 +224,7 @@ async function handleTelegramWebhook(req, res) {
             // must never close anything.
             const existing = await (0, supabase_1.getLead)(telegramUserId);
             if (isStartCommand && existing) {
+                await (0, reminders_1.tagResumedAfterReminder)(existing);
                 // statusFor() points Kommo at the question they stopped on, so /start
                 // resumes instead of starting over.
                 if (existing.kommo_contact_id) {

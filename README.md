@@ -145,7 +145,9 @@ Then branch on `{{json.status}}` = `joined`.
 never on the name.
 
 **Tags** — `Link sent` (email accepted) sets `link_sent_at`; `Joined Channel` is set after the
-membership check.
+membership check. The reminder loop adds `Reminder 1 sent` … `Reminder 4 sent` as each nudge goes
+out, `Bot blocked` instead when Telegram answers 403, and `Resumed after reminder` the first time a
+nudged person comes back. All of these are appended — existing tags are never removed.
 
 ## Supabase `leads` columns
 

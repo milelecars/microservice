@@ -204,6 +204,29 @@ export async function closeTalk(talkId: string | number, telegramUserId: string 
   }
 }
 
+// ── Lead tags ─────────────────────────────────────────────────────────────────
+
+/**
+ * Add tags to a lead without touching the ones it already has. The current tags
+ * are read first so a name already on the lead is left alone, and the write goes
+ * through `tags_to_add`, which appends — nothing else can be dropped by a stale
+ * read. Returns the names that were actually added.
+ */
+export async function addLeadTags(leadId: string | number, names: string[]): Promise<string[]> {
+  try {
+    const lead = await get<KommoLead>(`/leads/${leadId}?with=tags`);
+    const existing = lead?._embedded?.tags ?? [];
+    const missing = names.filter(name => !hasTag(existing, name));
+    if (missing.length === 0) return [];
+
+    await patch(`/leads/${leadId}`, { tags_to_add: missing.map(name => ({ name })) });
+    return missing;
+  } catch (err) {
+    console.error('[kommo] addLeadTags failed for lead', leadId, '|', errText(err));
+    return [];
+  }
+}
+
 // ── Stage map (cached after first successful load) ─────────────────────────────
 
 let stageMap: Record<number, string> = {};

@@ -9,6 +9,7 @@ exports.patch = patch;
 exports.post = post;
 exports.setContactStatus = setContactStatus;
 exports.closeTalk = closeTalk;
+exports.addLeadTags = addLeadTags;
 exports.getStageMap = getStageMap;
 exports.resolveTelegramUserId = resolveTelegramUserId;
 exports.fieldValue = fieldValue;
@@ -112,6 +113,28 @@ async function closeTalk(talkId, telegramUserId) {
         }
         console.error('[talk] close failed', talkId, 'for TG', telegramUserId, '|', (0, env_1.errText)(err));
         return false;
+    }
+}
+// ── Lead tags ─────────────────────────────────────────────────────────────────
+/**
+ * Add tags to a lead without touching the ones it already has. The current tags
+ * are read first so a name already on the lead is left alone, and the write goes
+ * through `tags_to_add`, which appends — nothing else can be dropped by a stale
+ * read. Returns the names that were actually added.
+ */
+async function addLeadTags(leadId, names) {
+    try {
+        const lead = await get(`/leads/${leadId}?with=tags`);
+        const existing = lead?._embedded?.tags ?? [];
+        const missing = names.filter(name => !hasTag(existing, name));
+        if (missing.length === 0)
+            return [];
+        await patch(`/leads/${leadId}`, { tags_to_add: missing.map(name => ({ name })) });
+        return missing;
+    }
+    catch (err) {
+        console.error('[kommo] addLeadTags failed for lead', leadId, '|', (0, env_1.errText)(err));
+        return [];
     }
 }
 // ── Stage map (cached after first successful load) ─────────────────────────────
