@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Founder Circle funnel</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#F1F3F6; --panel:#FFFFFF; --ink:#132033; --muted:#6B7688; --line:#DDE2EA;
+    --joined:#1E9BD7; --link:#6FB7E0; --answer:#B9C7D6; --dropped:#C9573F; --faint:#EEF6FB;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Helvetica Neue",Helvetica,Arial,sans-serif}
+  a{color:inherit}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 24px 60px}
+  header{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;margin-bottom:22px}
+  h1{font-size:30px;font-weight:600;letter-spacing:-0.01em;margin:0}
+  .sub{color:var(--muted);margin-top:4px}
+  .source{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  input,textarea,button,select{font:inherit}
+  input,select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff;min-width:200px}
+  button{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:8px;padding:8px 14px;cursor:pointer}
+  button.quiet{background:#fff;color:var(--ink)}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #9CD3F2;outline-offset:2px}
+  details{margin-top:8px;color:var(--muted)}
+  textarea{width:100%;height:110px;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px}
+  .status{color:var(--muted);font-size:14px;margin:6px 0 0}
+
+  /* hero funnel */
+  .funnel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 22px 18px}
+  .bands{display:flex;height:96px;border-radius:8px;overflow:hidden}
+  .band{display:flex;flex-direction:column;justify-content:flex-end;padding:10px 12px;color:#fff;min-width:0;transition:width .5s ease}
+  .band b{font-size:26px;font-weight:600;line-height:1}
+  .band span{font-size:13px;opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .b-dropped{background:var(--dropped)} .b-answer{background:#8FA5BB} .b-link{background:var(--link)} .b-joined{background:var(--joined)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-top:16px}
+  .kpi b{display:block;font-size:24px;font-weight:600}
+  .kpi span{color:var(--muted);font-size:13px}
+  @media (prefers-reduced-motion:reduce){.band{transition:none}}
+
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;margin-top:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 18px 12px}
+  .card h2{font-size:16px;font-weight:600;margin:0 0 2px}
+  .card p{color:var(--muted);font-size:13px;margin:0 0 10px}
+  .c12{grid-column:span 12}.c8{grid-column:span 8}.c6{grid-column:span 6}.c4{grid-column:span 4}
+  @media (max-width:900px){.c8,.c6,.c4{grid-column:span 12}}
+  canvas{width:100%!important;height:260px!important}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--muted);font-weight:500;position:sticky;top:0;background:#fff}
+  .tablewrap{overflow:auto;max-height:520px;border:1px solid var(--line);border-radius:10px}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px}
+  .p-joined{background:var(--faint);color:#0B6FA6}.p-link{background:#FFF4EC;color:#B15A2E}.p-answer{background:#F1F3F6;color:#4B5768}
+  .tools{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Founder Circle funnel</h1>
+      <div class="sub" id="range">No data loaded</div>
+    </div>
+    <div>
+      <div class="source">
+        <button id="refreshBtn" class="quiet">Refresh</button>
+      </div>
+      <details>
+        <summary>Or paste an export from the table</summary>
+        <textarea id="paste" placeholder='Paste the JSON export of founder_circle_members here'></textarea>
+        <button id="pasteBtn" class="quiet" style="margin-top:8px">Use pasted data</button>
+      </details>
+      <div class="status" id="status"></div>
+    </div>
+  </header>
+
+  <section class="funnel" aria-label="Funnel">
+    <div class="bands" id="bands"></div>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <div class="grid">
+    <div class="card c8"><h2>Per day</h2><p>People who started and people who joined, Dubai time</p><canvas id="daily"></canvas></div>
+    <div class="card c4"><h2>Where people stop</h2><p>Last question answered by those who did not get the link</p><canvas id="stops"></canvas></div>
+    <div class="card c6"><h2>By source</h2><p>Started and joined per platform code</p><canvas id="sources"></canvas></div>
+    <div class="card c6"><h2>Join rate by source</h2><p>Joined divided by started</p><canvas id="rates"></canvas></div>
+    <div class="card c4"><h2>Age</h2><p>Members only</p><canvas id="age"></canvas></div>
+    <div class="card c4"><h2>Interest</h2><p>Members only</p><canvas id="interest"></canvas></div>
+    <div class="card c4"><h2>Country</h2><p>Top ten, members only</p><canvas id="country"></canvas></div>
+    <div class="card c12">
+      <h2>People</h2><p>Everyone in the table. Search, filter, export.</p>
+      <div class="tools">
+        <input id="search" placeholder="Search name, username, email, phone">
+        <select id="stageFilter">
+          <option value="">Every stage</option>
+          <option value="joined">Joined</option>
+          <option value="link">Link sent, not joined</option>
+          <option value="answering">Still answering</option>
+        </select>
+        <select id="sourceFilter"><option value="">Every source</option></select>
+        <button id="csvBtn" class="quiet">Download CSV</button>
+      </div>
+      <div class="tablewrap"><table id="table"><thead><tr>
+        <th>Name</th><th>Username</th><th>Source</th><th>Stage</th><th>Country</th><th>Age</th><th>Interest</th><th>Phone</th><th>Email</th><th>Started</th><th>Joined</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TZ='Asia/Dubai';
+let rows=[], charts={};
+const $=s=>document.querySelector(s);
+const fmt=n=>n.toLocaleString();
+const pct=(a,b)=>b?Math.round(a/b*100)+'%':'0%';
+const day=d=>new Date(d).toLocaleDateString('en-GB',{timeZone:TZ,day:'2-digit',month:'short'});
+const dayKey=d=>new Date(d).toLocaleDateString('en-CA',{timeZone:TZ});
+const stageOf=r=>r.joined_at?'joined':(r.link_sent_at?'link':'answering');
+const stopOf=r=>{ if(!r.name||r.name===[r.first_name,r.last_name].filter(Boolean).join(' ')) return 'Welcome / name';
+  if(!r.country) return 'Country'; if(!r.age_bracket) return 'Age'; if(!r.interest) return 'Interest'; if(!r.phone) return 'Phone'; if(!r.email) return 'Email'; return 'Email'; };
+const src=r=>(r.original_source_platform||r.source_platform||'no code').toString().toLowerCase();
+
+function setStatus(t){$('#status').textContent=t}
+
+const clock=d=>new Date(d).toLocaleString('en-GB',{timeZone:TZ,day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+
+// The server holds the Supabase key and does the reading; this page only asks it for the rows.
+async function loadData(fresh){
+  $('#refreshBtn').disabled=true;
+  setStatus(fresh?'Refreshing…':'Loading…');
+  try{
+    const res=await fetch('/dashboard/data'+(fresh?'?fresh=1':''),{headers:{Accept:'application/json'},cache:'no-store'});
+    if(!res.ok) throw new Error(res.status+' '+(await res.text()).slice(0,200));
+    const payload=await res.json();
+    rows=Array.isArray(payload.rows)?payload.rows:[];
+    render();
+    setStatus(fmt(rows.length)+' rows, loaded '+clock(payload.loaded_at||Date.now()));
+  }catch(e){setStatus('Could not load: '+e.message)}
+  finally{$('#refreshBtn').disabled=false}
+}
+function loadPaste(){
+  try{ const j=JSON.parse($('#paste').value); rows=Array.isArray(j)?j:(j.data||[]); render(); setStatus('Pasted export: '+fmt(rows.length)+' rows'); }
+  catch(e){ setStatus('That is not valid JSON. Copy the whole export, including the square brackets.') }
+}
+$('#refreshBtn').onclick=()=>loadData(true); $('#pasteBtn').onclick=loadPaste;
+['search','stageFilter','sourceFilter'].forEach(id=>$('#'+id).addEventListener('input',renderTable));
+$('#csvBtn').onclick=downloadCsv;
+
+function render(){
+  if(!rows.length){$('#range').textContent='No data loaded';return}
+  const started=rows.filter(r=>r.started_at);
+  const joined=rows.filter(r=>r.joined_at);
+  const link=rows.filter(r=>r.link_sent_at&&!r.joined_at);
+  const answering=rows.filter(r=>!r.link_sent_at&&!r.joined_at);
+  const stopped=answering.filter(r=>{const s=stopOf(r);return s==='Welcome / name'});
+  const inChannel=rows.filter(r=>r.in_channel).length;
+  const left=rows.filter(r=>r.left_at&&!r.in_channel).length;
+  const times=joined.filter(r=>r.started_at).map(r=>(new Date(r.joined_at)-new Date(r.started_at))/60000).filter(m=>m>0&&m<60).sort((a,b)=>a-b);
+  const median=times.length?times[Math.floor(times.length/2)]:0;
+  const dates=started.map(r=>new Date(r.started_at)).sort((a,b)=>a-b);
+  $('#range').textContent=`${fmt(rows.length)} people, ${day(dates[0])} to ${day(dates[dates.length-1])}`;
+
+  const total=rows.length;
+  const bands=[
+    ['b-joined',joined.length,'Joined'],
+    ['b-link',link.length,'Have the link'],
+    ['b-answer',answering.length-stopped.length,'Answering'],
+    ['b-dropped',stopped.length,'Never started'],
+  ];
+  $('#bands').innerHTML=bands.map(([c,n,l])=>`<div class="band ${c}" style="width:${Math.max(n/total*100,n?6:0)}%" title="${l}: ${n}"><b>${n}</b><span>${l}</span></div>`).join('');
+  $('#kpis').innerHTML=[
+    [fmt(total),'started'],[pct(joined.length,total),'join rate'],[fmt(inChannel),'in the channel now'],[fmt(left),'left after joining'],
+    [median?median.toFixed(1)+' min':'–','median start to join'],[fmt(link.length),'have the link, not joined'],
+  ].map(([b,s])=>`<div class="kpi"><b>${b}</b><span>${s}</span></div>`).join('');
+
+  // daily
+  const days={}; rows.forEach(r=>{ if(r.started_at){const k=dayKey(r.started_at);days[k]=days[k]||{s:0,j:0};days[k].s++}
+    if(r.joined_at){const k=dayKey(r.joined_at);days[k]=days[k]||{s:0,j:0};days[k].j++} });
+  const dk=Object.keys(days).sort();
+  chart('daily','line',{labels:dk.map(d=>day(d)),datasets:[
+    {label:'Started',data:dk.map(k=>days[k].s),borderColor:'#8FA5BB',backgroundColor:'#8FA5BB',tension:.3},
+    {label:'Joined',data:dk.map(k=>days[k].j),borderColor:'#1E9BD7',backgroundColor:'#1E9BD7',tension:.3}]});
+
+  // stops
+  const stopOrder=['Welcome / name','Country','Age','Interest','Phone','Email'];
+  const stops={}; answering.forEach(r=>{const s=stopOf(r);stops[s]=(stops[s]||0)+1});
+  chart('stops','bar',{labels:stopOrder,datasets:[{label:'People',data:stopOrder.map(s=>stops[s]||0),backgroundColor:'#C9573F'}]},{indexAxis:'y'});
+
+  // sources
+  const bySrc={}; rows.forEach(r=>{const s=src(r);bySrc[s]=bySrc[s]||{s:0,j:0};bySrc[s].s++;if(r.joined_at)bySrc[s].j++});
+  const sk=Object.keys(bySrc).sort((a,b)=>bySrc[b].s-bySrc[a].s);
+  chart('sources','bar',{labels:sk,datasets:[{label:'Started',data:sk.map(k=>bySrc[k].s),backgroundColor:'#8FA5BB'},{label:'Joined',data:sk.map(k=>bySrc[k].j),backgroundColor:'#1E9BD7'}]});
+  chart('rates','bar',{labels:sk,datasets:[{label:'Join rate %',data:sk.map(k=>bySrc[k].s?Math.round(bySrc[k].j/bySrc[k].s*100):0),backgroundColor:'#1E9BD7'}]},{scales:{y:{min:0,max:100}}});
+
+  // members breakdowns
+  const cnt=(arr,f)=>{const o={};arr.forEach(r=>{const v=f(r);if(v)o[v]=(o[v]||0)+1});return o};
+  const ages=cnt(joined,r=>r.age_bracket); const ao=['Under 18','18 to 24','25 to 34','35 to 44','45 above'];
+  chart('age','bar',{labels:ao,datasets:[{label:'Members',data:ao.map(a=>ages[a]||0),backgroundColor:'#1E9BD7'}]});
+  const ints=cnt(joined,r=>r.interest); const io=Object.keys(ints).sort((a,b)=>ints[b]-ints[a]);
+  chart('interest','bar',{labels:io,datasets:[{label:'Members',data:io.map(i=>ints[i]),backgroundColor:'#1E9BD7'}]},{indexAxis:'y'});
+  const ctry=cnt(joined,r=>r.country&&r.country.trim().replace(/\b\w/g,c=>c.toUpperCase())); const co=Object.keys(ctry).sort((a,b)=>ctry[b]-ctry[a]).slice(0,10);
+  chart('country','bar',{labels:co,datasets:[{label:'Members',data:co.map(c=>ctry[c]),backgroundColor:'#1E9BD7'}]},{indexAxis:'y'});
+
+  const sf=$('#sourceFilter'); sf.innerHTML='<option value="">Every source</option>'+sk.map(s=>`<option value="${s}">${s}</option>`).join('');
+  renderTable();
+}
+
+function chart(id,type,data,extra={}){
+  if(charts[id]) charts[id].destroy();
+  charts[id]=new Chart($('#'+id),{type,data,options:Object.assign({responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:data.datasets.length>1,position:'bottom'}},
+    scales:{x:{grid:{display:false}},y:{grid:{color:'#EEF1F5'},ticks:{precision:0}}}},extra)});
+}
+
+function filtered(){
+  const q=$('#search').value.trim().toLowerCase(), st=$('#stageFilter').value, so=$('#sourceFilter').value;
+  return rows.filter(r=>(!st||stageOf(r)===st)&&(!so||src(r)===so)&&(!q||[r.name,r.telegram_username,r.email,r.phone,r.first_name,r.last_name].join(' ').toLowerCase().includes(q)))
+             .sort((a,b)=>new Date(b.started_at||0)-new Date(a.started_at||0));
+}
+function renderTable(){
+  const tb=$('#table tbody'); const data=filtered();
+  if(!data.length){tb.innerHTML='<tr><td colspan="11" class="empty">Nothing matches. Clear the search or the filters.</td></tr>';return}
+  const stamp=d=>d?new Date(d).toLocaleString('en-GB',{timeZone:TZ,day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+  const pill=r=>{const s=stageOf(r);return s==='joined'?'<span class="pill p-joined">Joined</span>':s==='link'?'<span class="pill p-link">Link sent</span>':`<span class="pill p-answer">Stopped at ${stopOf(r).toLowerCase()}</span>`};
+  tb.innerHTML=data.map(r=>`<tr><td>${esc(r.name||'')}</td><td>${esc(r.telegram_username||'')}</td><td>${esc(src(r))}</td><td>${pill(r)}</td><td>${esc(r.country||'')}</td><td>${esc(r.age_bracket||'')}</td><td>${esc(r.interest||'')}</td><td>${esc(r.phone||'')}</td><td>${esc(r.email||'')}</td><td>${stamp(r.started_at)}</td><td>${stamp(r.joined_at)}</td></tr>`).join('');
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function downloadCsv(){
+  const cols=['name','telegram_username','telegram_user_id','source','stage','country','age_bracket','interest','phone','email','started_at','link_sent_at','joined_at','left_at','in_channel'];
+  const data=filtered().map(r=>({...r,source:src(r),stage:stageOf(r)}));
+  const csv=[cols.join(',')].concat(data.map(r=>cols.map(c=>`"${String(r[c]??'').replace(/"/g,'""')}"`).join(','))).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='founder_circle_members.csv'; a.click();
+}
+
+loadData(false);
+</script>
+</body>
+</html>

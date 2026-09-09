@@ -12,6 +12,7 @@ const telegram_1 = require("./handlers/telegram");
 const stage_1 = require("./handlers/stage");
 const contact_1 = require("./handlers/contact");
 const admin_1 = require("./handlers/admin");
+const dashboard_1 = require("./handlers/dashboard");
 const env_1 = require("./env");
 const pending_1 = require("./pending");
 const reminders_1 = require("./reminders");
@@ -64,6 +65,15 @@ app.post('/webhook/message', webhook_1.handleNewMessage);
 app.post('/webhook/telegram', telegram_1.handleTelegramWebhook);
 app.post('/webhook/contact', contact_1.handleContactUpdate);
 app.post('/admin/resend-join', admin_1.resendJoin);
+// Founder Circle dashboard. Basic auth first, then public/ — and only public/,
+// so nothing else in the repo is reachable over HTTP.
+app.use('/dashboard', dashboard_1.dashboardAuth, express_1.default.static(dashboard_1.PUBLIC_DIR, {
+    index: false,
+    redirect: false, // `/dashboard` is answered by the route below, not a 301
+    setHeaders: res => res.setHeader('Cache-Control', 'no-store'),
+}));
+app.get('/dashboard', dashboard_1.serveDashboard);
+app.get('/dashboard/data', dashboard_1.dashboardData);
 app.get('/verify/channel', (_req, res) => {
     res.status(405).json({ ok: false, error: 'Method Not Allowed. Use POST /verify/channel' });
 });
@@ -85,6 +95,7 @@ app.get('/', (_req, res) => {
             '/webhook/stage',
             '/webhook/contact',
             '/webhook/message',
+            '/dashboard',
         ],
     });
 });

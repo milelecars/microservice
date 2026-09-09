@@ -7,6 +7,7 @@ import { handleTelegramWebhook } from './handlers/telegram';
 import { handleStageChange } from './handlers/stage';
 import { handleContactUpdate } from './handlers/contact';
 import { resendJoin } from './handlers/admin';
+import { dashboardAuth, serveDashboard, dashboardData, PUBLIC_DIR } from './handlers/dashboard';
 import { assertEnv } from './env';
 import { listPending } from './pending';
 import { startReminders } from './reminders';
@@ -75,6 +76,20 @@ app.post('/webhook/contact', handleContactUpdate);
 
 app.post('/admin/resend-join', resendJoin);
 
+// Founder Circle dashboard. Basic auth first, then public/ — and only public/,
+// so nothing else in the repo is reachable over HTTP.
+app.use(
+  '/dashboard',
+  dashboardAuth,
+  express.static(PUBLIC_DIR, {
+    index: false,
+    redirect: false, // `/dashboard` is answered by the route below, not a 301
+    setHeaders: res => res.setHeader('Cache-Control', 'no-store'),
+  })
+);
+app.get('/dashboard', serveDashboard);
+app.get('/dashboard/data', dashboardData);
+
 app.get('/verify/channel', (_req: Request, res: Response) => {
   res.status(405).json({ ok: false, error: 'Method Not Allowed. Use POST /verify/channel' });
 });
@@ -97,6 +112,7 @@ app.get('/', (_req: Request, res: Response) => {
       '/webhook/stage',
       '/webhook/contact',
       '/webhook/message',
+      '/dashboard',
     ],
   });
 });

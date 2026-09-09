@@ -46,6 +46,8 @@ It also still serves the two Weex checks used by the older funnel (`/verify/regi
 | `POST /verify/registered` | Kommo Salesbot | Weex UID exists under the affiliate account |
 | `POST /verify/deposited` | Kommo Salesbot | Weex UID has deposited |
 | `POST /admin/resend-join` | You, by hand | One-time catch-up: resends the join card to everyone still outside. Needs `X-Admin-Key` |
+| `GET /dashboard` | You, in a browser | The funnel dashboard. Basic auth |
+| `GET /dashboard/data` | The dashboard page | Every `founder_circle_members` row as JSON, minus the private columns |
 | `GET /debug/pending` | You, by hand | What the pending-match table is holding right now |
 | `GET /health` | Railway | `ok` |
 
@@ -74,6 +76,7 @@ The service refuses to start (exit 1) if any of the first six are missing.
 | `SUPABASE_KEY` | yes | Supabase service-role key |
 | `PUBLIC_URL` | for `set-webhook` | Public base URL of this deployment |
 | `ADMIN_KEY` | for `/admin/*` | Shared secret for `X-Admin-Key`. Without it the admin route answers 503 |
+| `DASHBOARD_PASSWORD` | for `/dashboard` | Basic-auth password, username `founder`. Without it the dashboard answers 503 |
 | `WEEX_API_KEY` / `WEEX_SECRET_KEY` / `WEEX_PASSPHRASE` | Weex checks only | Weex affiliate API credentials |
 | `PORT` / `HOST` | no | Defaults `3000` / `0.0.0.0` |
 
@@ -220,6 +223,22 @@ and answers with the count. Pass `{"telegram_user_id": 123}` to target one perso
 
 The table and these columns are created by `supabase_founder_circle.sql`. The service never creates
 tables — it only reads and writes rows through the Supabase REST API.
+
+## Dashboard
+
+`https://<railway-url>/dashboard` — sign in with username `founder` and the password in
+`DASHBOARD_PASSWORD`; if that variable is not set the page answers `503 Dashboard password not set`.
+
+It shows the funnel end to end: how many people started, have the link and joined, the daily
+started/joined curve, where unfinished sign-ups stopped, join rate per source, age/interest/country
+of the members, and a searchable, filterable, CSV-exportable table of everyone in
+`founder_circle_members`.
+
+The page is `public/dashboard.html` and holds no Supabase credentials. It calls
+`GET /dashboard/data`, which reads the table server-side with `SUPABASE_KEY`, drops the private
+columns (`broker_uid`, `ftd_amount`, `ftd_date`, `contact_number`, `kommo_talk_id`, `invite_link`)
+and caches the result for 60 seconds — **Refresh** re-reads through the cache, `?fresh=1` bypasses
+it. The paste-an-export box is still there as a fallback.
 
 ## Notes
 
