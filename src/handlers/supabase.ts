@@ -25,7 +25,9 @@ export interface LeadRecord {
   original_source_platform?: string; // set once on first contact, never overwritten
   first_name?:               string;
   last_name?:                string;
-  name?:                     string; // contact name typed into the Salesbot
+  name?:                     string; // contact name, from Telegram and Kommo
+  // The five answer columns below are never written any more — the bot asks no
+  // questions. Rows from the question era keep what they already hold.
   phone?:                    string;
   email?:                    string;
   country?:                  string;
@@ -40,11 +42,10 @@ export interface LeadRecord {
   lost_at?:                  string | null;
   in_channel?:               boolean;
   join_check_failures?:      number;
-  join_message_sent?:        boolean; // join invitation sent once, after the email
+  join_message_sent?:        boolean; // join card sent once, right after the greeting
   join_message_sent_at?:     string | null; // last join/retry message, for throttling
   welcome_sent?:             boolean; // welcome sent once, after the join was confirmed
   last_activity_at?:         string | null; // last message or tap from the person
-  next_question?:            string | null; // 1003176 value that resumes the Salesbot
   reminder_stage?:           number; // how many reminders have gone out (0-4)
   reminder_sent_at?:         string | null;
 }

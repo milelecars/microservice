@@ -4,14 +4,17 @@ exports.syncContactAnswers = syncContactAnswers;
 exports.handleContactUpdate = handleContactUpdate;
 const env_1 = require("../env");
 const kommo_1 = require("../kommo");
-const questions_1 = require("../questions");
 const identity_1 = require("./identity");
 const join_1 = require("./join");
 const supabase_1 = require("./supabase");
 /**
- * Copy the six Salesbot answers and the lead's tags onto the Supabase row.
- * Used by both the Kommo contact webhook and every incoming message, so the
- * answers land even when the contact webhook does not fire.
+ * Copy the contact's name and the lead's tags onto the Supabase row, and keep
+ * the Kommo ids in sync. Used by both the Kommo contact webhook and every
+ * incoming message.
+ *
+ * The bot asks no questions any more, so country, age, interest, phone and
+ * email are never read back — rows from the question era keep whatever they
+ * already hold, and new rows simply leave those columns null.
  */
 async function syncContactAnswers(contactId, leadId, telegramUserId) {
     const contact = await (0, kommo_1.get)(`/contacts/${contactId}`);
@@ -19,30 +22,18 @@ async function syncContactAnswers(contactId, leadId, telegramUserId) {
         console.warn('[answers] contact not found:', contactId);
         return;
     }
-    const fields = contact.custom_fields_values;
     const lead = await (0, kommo_1.get)(`/leads/${leadId}?with=tags`);
     const tags = lead?._embedded?.tags;
+    const status = (0, kommo_1.fieldValue)(contact.custom_fields_values, kommo_1.CONTACT_FIELD.STATUS);
     const data = {
         kommo_lead_id: String(leadId),
         kommo_contact_id: String(contactId),
         name: contact.name?.trim() || undefined,
-        phone: (0, kommo_1.fieldValueLast)(fields, kommo_1.CONTACT_FIELD.PHONE),
-        email: (0, kommo_1.fieldValueLast)(fields, kommo_1.CONTACT_FIELD.EMAIL),
-        country: (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.COUNTRY),
-        age_bracket: (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.AGE),
-        interest: (0, kommo_1.fieldValue)(fields, kommo_1.CONTACT_FIELD.INTEREST),
         current_tag: (0, kommo_1.tagNames)(tags),
     };
     if ((0, kommo_1.hasTag)(tags, 'Link sent'))
         data.link_sent_at = (0, supabase_1.nowIso)();
     const existing = await (0, supabase_1.getLead)(telegramUserId);
-    // Where the Salesbot should pick up if this person comes back
-    const merged = { ...existing };
-    for (const key of Object.keys(data)) {
-        if (data[key] !== undefined)
-            Object.assign(merged, { [key]: data[key] });
-    }
-    data.next_question = (0, questions_1.nextQuestionFor)(merged);
     if (!existing) {
         const record = { ...data, telegram_user_id: Number(telegramUserId) };
         for (const key of Object.keys(record)) {
@@ -51,6 +42,7 @@ async function syncContactAnswers(contactId, leadId, telegramUserId) {
         }
         await (0, supabase_1.insertLead)(record);
         console.log('[answers] TG', telegramUserId, '| row created');
+        await syncStatusField(contactId, status, record);
         if (record.link_sent_at)
             await inviteToChannel(telegramUserId);
         return;
@@ -59,6 +51,7 @@ async function syncContactAnswers(contactId, leadId, telegramUserId) {
     const changed = Object.keys(changes);
     // link_sent_at only appears in the diff the first time the tag shows up
     const linkJustSent = changes.link_sent_at !== undefined && !existing.join_message_sent;
+    await syncStatusField(contactId, status, { ...existing, ...changes });
     if (changed.length === 0) {
         console.log('[answers] TG', telegramUserId, '| no change');
         return;
@@ -67,6 +60,17 @@ async function syncContactAnswers(contactId, leadId, telegramUserId) {
     console.log('[answers] TG', telegramUserId, '| updated:', changed.join(', '));
     if (linkJustSent)
         await inviteToChannel(telegramUserId);
+}
+/**
+ * Keep contact field 1003176 in step with the row. The greeting sends the card
+ * before Kommo has a contact to write to, so this is where a brand new lead's
+ * "link sent" lands. Only written when it would actually change.
+ */
+async function syncStatusField(contactId, current, row) {
+    const desired = (0, kommo_1.contactStatusFor)(row);
+    if (!desired || desired === current)
+        return;
+    await (0, kommo_1.setContactStatus)(contactId, desired);
 }
 /** Send the join invitation once, and remember that we did. */
 async function inviteToChannel(telegramUserId) {

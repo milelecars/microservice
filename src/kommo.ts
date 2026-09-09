@@ -25,14 +25,18 @@ export const LEAD_FIELD = {
   SOURCE_PLATFORM: 1094948,
 } as const;
 
-/** Custom fields on the CONTACT, written by the Salesbot. */
+/**
+ * Custom fields on the CONTACT. Only STATUS is written now — the greeting-only
+ * bot asks nothing, so the answer fields are left for the rows that already
+ * hold answers from the question era.
+ */
 export const CONTACT_FIELD = {
   STATUS:   1003176, // funnel status: "joined" / "link sent" / empty
-  PHONE:    1003178, // multitext, enum WORK
-  EMAIL:    1003180, // multitext, enum WORK
-  COUNTRY:  1383512,
-  AGE:      1383508,
-  INTEREST: 1383510,
+  PHONE:    1003178, // multitext, enum WORK        (legacy, no longer written)
+  EMAIL:    1003180, // multitext, enum WORK        (legacy, no longer written)
+  COUNTRY:  1383512, //                             (legacy, no longer written)
+  AGE:      1383508, //                             (legacy, no longer written)
+  INTEREST: 1383510, //                             (legacy, no longer written)
 } as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -154,17 +158,23 @@ export async function post<T>(path: string, body: unknown): Promise<T | null> {
 
 // ── Contact status (field 1003176) ────────────────────────────────────────────
 
-/** Values bot version 26 routes on, in contact field 1003176. */
-export type ContactStatus =
-  | 'joined'
-  | 'link sent'
-  | 'need name'
-  | 'need country'
-  | 'need age'
-  | 'need interest'
-  | 'need phone'
-  | 'need email'
-  | '';
+/** Values the Salesbot routes on, in contact field 1003176. */
+export type ContactStatus = 'joined' | 'link sent' | '';
+
+/**
+ * Where this person stands, as contact field 1003176 spells it. The greeting
+ * sends the card straight away, so "link sent" covers everyone who has pressed
+ * Start and is not in the channel yet.
+ */
+export function contactStatusFor(row: {
+  joined_at?: string | null;
+  in_channel?: boolean;
+  link_sent_at?: string | null;
+}): ContactStatus {
+  if (row.joined_at || row.in_channel) return 'joined';
+  if (row.link_sent_at) return 'link sent';
+  return '';
+}
 
 /**
  * Mirror where the person stands onto the contact, so Kommo and Supabase never

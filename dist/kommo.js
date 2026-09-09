@@ -7,6 +7,7 @@ exports.CONTACT_FIELD = exports.LEAD_FIELD = exports.STAGE = exports.PIPELINE_ID
 exports.get = get;
 exports.patch = patch;
 exports.post = post;
+exports.contactStatusFor = contactStatusFor;
 exports.setContactStatus = setContactStatus;
 exports.closeTalk = closeTalk;
 exports.addLeadTags = addLeadTags;
@@ -38,14 +39,18 @@ exports.LEAD_FIELD = {
     TG_USERNAME: 1104292,
     SOURCE_PLATFORM: 1094948,
 };
-/** Custom fields on the CONTACT, written by the Salesbot. */
+/**
+ * Custom fields on the CONTACT. Only STATUS is written now — the greeting-only
+ * bot asks nothing, so the answer fields are left for the rows that already
+ * hold answers from the question era.
+ */
 exports.CONTACT_FIELD = {
     STATUS: 1003176, // funnel status: "joined" / "link sent" / empty
-    PHONE: 1003178, // multitext, enum WORK
-    EMAIL: 1003180, // multitext, enum WORK
-    COUNTRY: 1383512,
-    AGE: 1383508,
-    INTEREST: 1383510,
+    PHONE: 1003178, // multitext, enum WORK        (legacy, no longer written)
+    EMAIL: 1003180, // multitext, enum WORK        (legacy, no longer written)
+    COUNTRY: 1383512, //                             (legacy, no longer written)
+    AGE: 1383508, //                             (legacy, no longer written)
+    INTEREST: 1383510, //                             (legacy, no longer written)
 };
 // ── HTTP ──────────────────────────────────────────────────────────────────────
 function authHeaders() {
@@ -77,6 +82,18 @@ async function post(path, body) {
         timeout: 10000,
     });
     return resp.data ?? null;
+}
+/**
+ * Where this person stands, as contact field 1003176 spells it. The greeting
+ * sends the card straight away, so "link sent" covers everyone who has pressed
+ * Start and is not in the channel yet.
+ */
+function contactStatusFor(row) {
+    if (row.joined_at || row.in_channel)
+        return 'joined';
+    if (row.link_sent_at)
+        return 'link sent';
+    return '';
 }
 /**
  * Mirror where the person stands onto the contact, so Kommo and Supabase never

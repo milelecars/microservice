@@ -75,6 +75,7 @@
   .tools{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
   .tools .count{margin-left:auto;color:var(--muted);font-size:13px}
   .empty{padding:40px;text-align:center;color:var(--muted)}
+  .unused{padding:24px 0 32px;color:var(--ash)}
 </style>
 </head>
 <body>
@@ -99,13 +100,13 @@
   <section class="funnel" aria-label="Funnel">
     <h2>Where everyone who tapped a link is right now</h2>
     <div class="bands" id="bands"></div>
-    <div class="legend"><span><i style="background:var(--lime)"></i>Joined the channel</span><span><i style="background:var(--lime40)"></i>Have the link, not joined yet</span><span><i style="background:#E9E9EE"></i>Still answering</span><span><i style="background:var(--purple)"></i>Tapped Start, never answered</span></div>
+    <div class="legend"><span><i style="background:var(--lime)"></i>Joined the channel</span><span><i style="background:var(--lime40)"></i>Have the link, not joined yet</span><span><i style="background:#E9E9EE"></i>Greeted, deciding</span><span><i style="background:var(--purple)"></i>Tapped Start, never answered</span></div>
     <div class="kpis" id="kpis"></div>
   </section>
 
   <div class="grid">
     <div class="card c8"><h2>Per day</h2><p>People who started and people who joined, Dubai time</p><canvas id="daily"></canvas></div>
-    <div class="card c4"><h2>Where people stop</h2><p>Last question answered by those who did not get the link</p><canvas id="stops"></canvas></div>
+    <div class="card c4"><h2>Where people stop</h2><p>Last question answered by those who did not get the link</p><p class="unused" id="stopsNote" hidden>Not used in greeting-only mode — the bot asks no questions, so nobody stops on one.</p><canvas id="stops"></canvas></div>
     <div class="card c6"><h2>By source</h2><p>Started and joined per platform code</p><canvas id="sources"></canvas></div>
     <div class="card c6"><h2>Join rate by source</h2><p>Joined divided by started</p><canvas id="rates"></canvas></div>
     <div class="card c4"><h2>Age</h2><p>Members only</p><canvas id="age"></canvas></div>
@@ -226,10 +227,13 @@ function render(){
     {label:'Started',data:dk.map(k=>days[k].s),borderColor:'#7B5BE0',backgroundColor:'#7B5BE0',tension:.3},
     {label:'Joined',data:dk.map(k=>days[k].j),borderColor:'#7CB800',backgroundColor:'#AEFF02',tension:.3}]});
 
-  // stops
+  // stops — empty in greeting-only mode, where nobody is left answering
   const stopOrder=['Welcome / name','Country','Age','Interest','Phone','Email'];
   const stops={}; answering.forEach(r=>{const s=stopOf(r);stops[s]=(stops[s]||0)+1});
-  chart('stops','bar',{labels:stopOrder,datasets:[{label:'People',data:stopOrder.map(s=>stops[s]||0),backgroundColor:'#7B5BE0'}]},{indexAxis:'y'});
+  const noStops=answering.length===0;
+  $('#stopsNote').hidden=!noStops; $('#stops').hidden=noStops;
+  if(noStops){ if(charts.stops){charts.stops.destroy();delete charts.stops} }
+  else chart('stops','bar',{labels:stopOrder,datasets:[{label:'People',data:stopOrder.map(s=>stops[s]||0),backgroundColor:'#7B5BE0'}]},{indexAxis:'y'});
 
   // sources
   const bySrc={}; rows.forEach(r=>{const s=src(r);bySrc[s]=bySrc[s]||{s:0,j:0};bySrc[s].s++;if(r.joined_at)bySrc[s].j++});

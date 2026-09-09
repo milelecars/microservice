@@ -143,9 +143,9 @@ async function sendStage(row) {
     await tagLead(row, reminderTag(stage));
     console.log('[reminder] stage', stage, '-> TG', telegramUserId);
 }
-/** One pass over everyone who started but never got their link. */
+/** One pass over everyone who has the link but never joined the channel. */
 async function runRemindersOnce() {
-    const rows = await (0, supabase_1.queryLeads)('link_sent_at=is.null&joined_at=is.null&started_at=not.is.null' +
+    const rows = await (0, supabase_1.queryLeads)('link_sent_at=not.is.null&joined_at=is.null' +
         `&reminder_stage=lt.${exports.MAX_STAGE}&limit=500`);
     let sent = 0;
     for (const row of rows) {

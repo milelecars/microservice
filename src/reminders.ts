@@ -151,10 +151,10 @@ async function sendStage(row: LeadRecord): Promise<void> {
   console.log('[reminder] stage', stage, '-> TG', telegramUserId);
 }
 
-/** One pass over everyone who started but never got their link. */
+/** One pass over everyone who has the link but never joined the channel. */
 export async function runRemindersOnce(): Promise<number> {
   const rows = await queryLeads(
-    'link_sent_at=is.null&joined_at=is.null&started_at=not.is.null' +
+    'link_sent_at=not.is.null&joined_at=is.null' +
     `&reminder_stage=lt.${MAX_STAGE}&limit=500`
   );
 

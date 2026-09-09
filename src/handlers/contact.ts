@@ -5,13 +5,13 @@ import {
   PIPELINE_ID,
   KommoContact,
   KommoLead,
-  get as kommoGet,
+  contactStatusFor,
   fieldValue,
-  fieldValueLast,
+  get as kommoGet,
   hasTag,
+  setContactStatus,
   tagNames,
 } from '../kommo';
-import { nextQuestionFor } from '../questions';
 import { resolveTelegramId } from './identity';
 import { sendJoinInvite } from './join';
 import { getLead, insertLead, updateLead, diffLead, nowIso, LeadRecord } from './supabase';
@@ -29,9 +29,13 @@ interface ContactWebhookBody {
 }
 
 /**
- * Copy the six Salesbot answers and the lead's tags onto the Supabase row.
- * Used by both the Kommo contact webhook and every incoming message, so the
- * answers land even when the contact webhook does not fire.
+ * Copy the contact's name and the lead's tags onto the Supabase row, and keep
+ * the Kommo ids in sync. Used by both the Kommo contact webhook and every
+ * incoming message.
+ *
+ * The bot asks no questions any more, so country, age, interest, phone and
+ * email are never read back — rows from the question era keep whatever they
+ * already hold, and new rows simply leave those columns null.
  */
 export async function syncContactAnswers(
   contactId: string | number,
@@ -44,31 +48,19 @@ export async function syncContactAnswers(
     return;
   }
 
-  const fields = contact.custom_fields_values;
   const lead = await kommoGet<KommoLead>(`/leads/${leadId}?with=tags`);
   const tags = lead?._embedded?.tags;
+  const status = fieldValue(contact.custom_fields_values, CONTACT_FIELD.STATUS);
 
   const data: Partial<LeadRecord> = {
     kommo_lead_id:    String(leadId),
     kommo_contact_id: String(contactId),
     name:             contact.name?.trim() || undefined,
-    phone:            fieldValueLast(fields, CONTACT_FIELD.PHONE),
-    email:            fieldValueLast(fields, CONTACT_FIELD.EMAIL),
-    country:          fieldValue(fields, CONTACT_FIELD.COUNTRY),
-    age_bracket:      fieldValue(fields, CONTACT_FIELD.AGE),
-    interest:         fieldValue(fields, CONTACT_FIELD.INTEREST),
     current_tag:      tagNames(tags),
   };
   if (hasTag(tags, 'Link sent')) data.link_sent_at = nowIso();
 
   const existing = await getLead(telegramUserId);
-
-  // Where the Salesbot should pick up if this person comes back
-  const merged: Partial<LeadRecord> = { ...existing };
-  for (const key of Object.keys(data) as (keyof LeadRecord)[]) {
-    if (data[key] !== undefined) Object.assign(merged, { [key]: data[key] });
-  }
-  data.next_question = nextQuestionFor(merged);
 
   if (!existing) {
     const record: Partial<LeadRecord> = { ...data, telegram_user_id: Number(telegramUserId) };
@@ -77,6 +69,7 @@ export async function syncContactAnswers(
     }
     await insertLead(record);
     console.log('[answers] TG', telegramUserId, '| row created');
+    await syncStatusField(contactId, status, record);
     if (record.link_sent_at) await inviteToChannel(telegramUserId);
     return;
   }
@@ -87,6 +80,8 @@ export async function syncContactAnswers(
   // link_sent_at only appears in the diff the first time the tag shows up
   const linkJustSent = changes.link_sent_at !== undefined && !existing.join_message_sent;
 
+  await syncStatusField(contactId, status, { ...existing, ...changes });
+
   if (changed.length === 0) {
     console.log('[answers] TG', telegramUserId, '| no change');
     return;
@@ -96,6 +91,21 @@ export async function syncContactAnswers(
   console.log('[answers] TG', telegramUserId, '| updated:', changed.join(', '));
 
   if (linkJustSent) await inviteToChannel(telegramUserId);
+}
+
+/**
+ * Keep contact field 1003176 in step with the row. The greeting sends the card
+ * before Kommo has a contact to write to, so this is where a brand new lead's
+ * "link sent" lands. Only written when it would actually change.
+ */
+async function syncStatusField(
+  contactId: string | number,
+  current: string | undefined,
+  row: Partial<LeadRecord>
+): Promise<void> {
+  const desired = contactStatusFor(row);
+  if (!desired || desired === current) return;
+  await setContactStatus(contactId, desired);
 }
 
 /** Send the join invitation once, and remember that we did. */

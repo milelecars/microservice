@@ -1,18 +1,16 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
 import { requireEnv, errText } from '../env';
-import { ContactStatus, closeTalk, setContactStatus } from '../kommo';
+import { closeTalk, contactStatusFor, setContactStatus } from '../kommo';
 import { pushPending } from '../pending';
-import { nextQuestionFor } from '../questions';
 import { tagResumedAfterReminder } from '../reminders';
 import {
   answerCallbackQuery,
   getChatMemberStatus,
   isInChannelStatus,
-  sendJoinMessage,
 } from '../telegram-api';
-import { sendJoinInvite, sendJoinRetry } from './join';
-import { getLead, updateLead, upsertLead, nowIso, LeadRecord } from './supabase';
+import { sendJoinCard, sendJoinInvite, sendJoinRetry } from './join';
+import { getLead, updateLead, upsertLead, nowIso } from './supabase';
 import { welcomeUser } from './welcome';
 
 // ── Telegram update shapes (only what we read) ────────────────────────────────
@@ -45,7 +43,6 @@ interface TgCallbackQuery {
   id?: string;
   from?: TgUser;
   data?: string;
-  message?: { chat?: TgChat };
 }
 
 interface TgUpdate {
@@ -78,13 +75,6 @@ const OUT_OF_CHANNEL_STATUSES = ['left', 'kicked'];
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
-/** Where this person stands, as Kommo contact field 1003176 spells it. */
-function statusFor(row: LeadRecord): ContactStatus {
-  if (row.joined_at || row.in_channel) return 'joined';
-  if (row.link_sent_at) return 'link sent';
-  return (row.next_question as ContactStatus | null) ?? nextQuestionFor(row) ?? '';
-}
-
 /** Forward a plain "Hi" to Kommo in the shape Telegram would have sent it. */
 async function forwardToKommo(update: unknown): Promise<void> {
   try {
@@ -98,39 +88,13 @@ async function forwardToKommo(update: unknown): Promise<void> {
   }
 }
 
-function syntheticHi(user: TgUser, chatId: number): unknown {
-  return {
-    update_id: Date.now(),
-    message: {
-      message_id: Math.floor(Date.now() / 1000),
-      from: {
-        id: user.id,
-        is_bot: false,
-        first_name: user.first_name ?? '',
-        last_name: user.last_name,
-        username: user.username,
-      },
-      chat: {
-        id: chatId,
-        first_name: user.first_name ?? '',
-        last_name: user.last_name,
-        username: user.username,
-        type: 'private',
-      },
-      date: Math.floor(Date.now() / 1000),
-      text: 'Hi',
-    },
-  };
-}
-
-// ── "Continue" tap: pick the questions up where they stopped ──────────────────
+// ── "Continue" tap: the reminder's button, which resends the join card ────────
 
 async function handleContinueTap(query: TgCallbackQuery): Promise<void> {
   if (query.id) await answerCallbackQuery(query.id);
 
-  const user = query.from;
-  const telegramUserId = user?.id;
-  if (!user || !telegramUserId) {
+  const telegramUserId = query.from?.id;
+  if (!telegramUserId) {
     console.warn('[resume] callback without from.id - skipping');
     return;
   }
@@ -144,40 +108,9 @@ async function handleContinueTap(query: TgCallbackQuery): Promise<void> {
   }
 
   await tagResumedAfterReminder(row);
+  await sendJoinCard(telegramUserId, row);
 
-  const nextQuestion = nextQuestionFor(row);
-
-  // Everything answered, they just never got in
-  if (!nextQuestion) {
-    await sendJoinMessage(telegramUserId);
-    console.log('[resume] TG', telegramUserId, '-> all answered, join message resent');
-    return;
-  }
-
-  if (row.next_question !== nextQuestion) {
-    await updateLead(telegramUserId, { next_question: nextQuestion });
-  }
-
-  if (row.kommo_contact_id) {
-    await setContactStatus(row.kommo_contact_id, nextQuestion);
-  } else {
-    console.warn('[resume] no contact id for TG', telegramUserId, '- Kommo not told where to resume');
-  }
-
-  if (row.kommo_talk_id) {
-    await closeTalk(row.kommo_talk_id, telegramUserId);
-    await sleep(1000);
-  }
-
-  const chatId = query.message?.chat?.id ?? telegramUserId;
-  pushPending({
-    telegram_user_id: telegramUserId,
-    text_forwarded:   'Hi',
-    display_name:     `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim(),
-  });
-  await forwardToKommo(syntheticHi(user, chatId));
-
-  console.log('[resume] TG', telegramUserId, '->', nextQuestion);
+  console.log('[resume] TG', telegramUserId, '-> join card resent');
 }
 
 // ── "I've Joined" tap ─────────────────────────────────────────────────────────
@@ -316,10 +249,10 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       if (isStartCommand && existing) {
         await tagResumedAfterReminder(existing);
 
-        // statusFor() points Kommo at the question they stopped on, so /start
-        // resumes instead of starting over.
+        // Tell Kommo where this person stands before the forwarded message
+        // reaches the Salesbot.
         if (existing.kommo_contact_id) {
-          await setContactStatus(existing.kommo_contact_id, statusFor(existing));
+          await setContactStatus(existing.kommo_contact_id, contactStatusFor(existing));
         }
 
         if (existing.kommo_talk_id) {
@@ -371,6 +304,14 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       );
 
       console.log('[telegram] row upserted | TG user:', telegramUserId);
+
+      // Greeting-only: the card goes out on /start, with nothing to answer
+      // first. A row that already has link_sent_at got its card long ago —
+      // the "bring the card back" step above covers those.
+      if (isStartCommand && !existing?.link_sent_at) {
+        await sendJoinCard(telegramUserId);
+        console.log('[telegram] join card sent on /start | TG user:', telegramUserId);
+      }
     } catch (err) {
       console.error('[telegram] error:', errText(err));
     }
