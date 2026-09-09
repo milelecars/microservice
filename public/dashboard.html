@@ -69,6 +69,9 @@
   .tablewrap{overflow:auto;max-height:560px;border:1px solid var(--line);border-radius:12px}
   .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
   .p-joined{background:var(--lime);color:var(--ink)}.p-link{background:var(--lime40);color:var(--ink)}.p-answer{background:var(--purple10);color:var(--purple)}
+  .dots{white-space:nowrap;letter-spacing:2px;color:var(--purple)}
+  .dots.none{color:var(--ash);letter-spacing:0}
+  .dots b{font-weight:600;font-size:12px;color:var(--muted);letter-spacing:0;margin-left:4px}
   .tools{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
   .tools .count{margin-left:auto;color:var(--muted);font-size:13px}
   .empty{padding:40px;text-align:center;color:var(--muted)}
@@ -117,13 +120,15 @@
           <option value="joined">Joined</option>
           <option value="link">Link sent, not joined</option>
           <option value="answering">Still answering</option>
+          <option value="reminded">Got a reminder</option>
+          <option value="blocked">Blocked bot</option>
         </select>
         <select id="sourceFilter"><option value="">Every source</option></select>
         <button id="csvBtn" class="quiet">Download CSV</button>
         <span class="count" id="count"></span>
       </div>
       <div class="tablewrap"><table id="table"><thead><tr>
-        <th>Name</th><th>Username</th><th>Source</th><th>Stage</th><th>Country</th><th>Age</th><th>Interest</th><th>Phone</th><th>Email</th><th>Started</th><th>Joined</th>
+        <th>Name</th><th>Username</th><th>Source</th><th>Stage</th><th>Reminders</th><th>Country</th><th>Age</th><th>Interest</th><th>Phone</th><th>Email</th><th>Started</th><th>Joined</th>
       </tr></thead><tbody></tbody></table></div>
     </div>
   </div>
@@ -154,6 +159,12 @@ const stageOf=r=>r.joined_at?'joined':(r.link_sent_at?'link':'answering');
 const stopOf=r=>{ if(!r.name||r.name===[r.first_name,r.last_name].filter(Boolean).join(' ')) return 'Welcome / name';
   if(!r.country) return 'Country'; if(!r.age_bracket) return 'Age'; if(!r.interest) return 'Interest'; if(!r.phone) return 'Phone'; if(!r.email) return 'Email'; return 'Email'; };
 const src=r=>(r.original_source_platform||r.source_platform||'no code').toString().toLowerCase();
+const MAX_STAGE=4;
+const remindersOf=r=>Math.min(MAX_STAGE,Math.max(0,Number(r.reminder_stage)||0));
+const gotReminder=r=>remindersOf(r)>0;
+// The bot marks a blocker by jumping the ladder straight to its last rung, so
+// the Kommo tag is the sure sign and a maxed-out ladder with no join is the tell.
+const blockedBot=r=>/bot blocked/i.test(r.current_tag||'')||(remindersOf(r)>=MAX_STAGE&&!r.joined_at);
 
 function setStatus(t){$('#status').textContent=t}
 
@@ -198,9 +209,13 @@ function render(){
   ];
   $('#bands').innerHTML=bands.map(([c,n,l])=>`<div class="band ${c}" style="width:${Math.max(n/total*100,n?7:0)}%" title="${l}: ${n}"><b>${n}</b><span>${l} <small>${pct(n,total)}</small></span></div>`).join('');
   const todayKey=dayKey(new Date()); const todayS=rows.filter(r=>r.started_at&&dayKey(r.started_at)===todayKey).length, todayJ=rows.filter(r=>r.joined_at&&dayKey(r.joined_at)===todayKey).length;
+  const reminded=rows.filter(gotReminder).length;
+  const cameBack=rows.filter(r=>gotReminder(r)&&r.joined_at).length;
   $('#kpis').innerHTML=[
     [fmt(total),'people started',`${todayS} today`],[pct(joined.length,total),'ended up in the channel',`${todayJ} joined today`],[fmt(inChannel),'in the channel now',''],[fmt(left),'left after joining',''],
     [median?median.toFixed(1)+' min':'–','typical time from Start to joined',''],[fmt(link.length),'holding a link, not joined',''],
+    [fmt(reminded),'got at least one reminder',reminded?pct(reminded,total)+' of everyone':''],
+    [fmt(cameBack),'came back after a reminder',reminded?pct(cameBack,reminded)+' of those nudged':''],
   ].map(([b,s,e])=>`<div class="kpi"><b>${b}</b><span>${s}</span>${e?`<em>${e}</em>`:''}</div>`).join('');
 
   // daily
@@ -242,22 +257,34 @@ function chart(id,type,data,extra={}){
     scales:{x:{grid:{display:false},ticks:{color:'#5A5A63'}},y:{grid:{color:'#EEEEF2'},ticks:{precision:0,color:'#5A5A63'}}}},extra)});
 }
 
+function matchesStage(r,st){
+  if(!st) return true;
+  if(st==='reminded') return gotReminder(r);
+  if(st==='blocked') return blockedBot(r);
+  return stageOf(r)===st;
+}
 function filtered(){
   const q=$('#search').value.trim().toLowerCase(), st=$('#stageFilter').value, so=$('#sourceFilter').value;
-  return rows.filter(r=>(!st||stageOf(r)===st)&&(!so||src(r)===so)&&(!q||[r.name,r.telegram_username,r.email,r.phone,r.first_name,r.last_name].join(' ').toLowerCase().includes(q)))
+  return rows.filter(r=>matchesStage(r,st)&&(!so||src(r)===so)&&(!q||[r.name,r.telegram_username,r.email,r.phone,r.first_name,r.last_name].join(' ').toLowerCase().includes(q)))
              .sort((a,b)=>new Date(b.started_at||0)-new Date(a.started_at||0));
 }
 function renderTable(){
   const tb=$('#table tbody'); const data=filtered();
-  if(!data.length){tb.innerHTML='<tr><td colspan="11" class="empty">Nothing matches. Clear the search or the filters.</td></tr>';return}
+  if(!data.length){tb.innerHTML='<tr><td colspan="12" class="empty">Nothing matches. Clear the search or the filters.</td></tr>';return}
   const stamp=d=>d?new Date(d).toLocaleString('en-GB',{timeZone:TZ,day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'';
   const pill=r=>{const s=stageOf(r);return s==='joined'?'<span class="pill p-joined">Joined</span>':s==='link'?'<span class="pill p-link">Link sent</span>':`<span class="pill p-answer">Stopped at ${stopOf(r).toLowerCase()}</span>`};
+  const dots=r=>{
+    const n=remindersOf(r);
+    if(!n) return '<span class="dots none" title="No reminders sent">–</span>';
+    const when=r.reminder_sent_at?'last sent '+stamp(r.reminder_sent_at):'never stamped';
+    return `<span class="dots" title="${esc(`${n} of ${MAX_STAGE} reminders, ${when}`)}">${'●'.repeat(n)}${'○'.repeat(MAX_STAGE-n)}<b>${n}</b></span>`;
+  };
   $('#count').textContent=fmt(data.length)+' of '+fmt(rows.length);
-  tb.innerHTML=data.map(r=>`<tr><td>${esc(r.name||'')}</td><td>${esc(r.telegram_username||'')}</td><td>${esc(src(r))}</td><td>${pill(r)}</td><td>${esc(r.country||'')}</td><td>${esc(r.age_bracket||'')}</td><td>${esc(r.interest||'')}</td><td>${esc(r.phone||'')}</td><td>${esc(r.email||'')}</td><td>${stamp(r.started_at)}</td><td>${stamp(r.joined_at)}</td></tr>`).join('');
+  tb.innerHTML=data.map(r=>`<tr><td>${esc(r.name||'')}</td><td>${esc(r.telegram_username||'')}</td><td>${esc(src(r))}</td><td>${pill(r)}</td><td>${dots(r)}</td><td>${esc(r.country||'')}</td><td>${esc(r.age_bracket||'')}</td><td>${esc(r.interest||'')}</td><td>${esc(r.phone||'')}</td><td>${esc(r.email||'')}</td><td>${stamp(r.started_at)}</td><td>${stamp(r.joined_at)}</td></tr>`).join('');
 }
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function downloadCsv(){
-  const cols=['name','telegram_username','telegram_user_id','source','stage','country','age_bracket','interest','phone','email','started_at','link_sent_at','joined_at','left_at','in_channel'];
+  const cols=['name','telegram_username','telegram_user_id','source','stage','country','age_bracket','interest','phone','email','started_at','link_sent_at','joined_at','left_at','in_channel','reminder_stage','reminder_sent_at','last_activity_at'];
   const data=filtered().map(r=>({...r,source:src(r),stage:stageOf(r)}));
   const csv=[cols.join(',')].concat(data.map(r=>cols.map(c=>`"${String(r[c]??'').replace(/"/g,'""')}"`).join(','))).join('\n');
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='founder_circle_members.csv'; a.click();
