@@ -28,6 +28,7 @@ function joinKeyboard() {
         ],
     };
 }
+/** What the card says when the caller has nothing more specific to say. */
 exports.JOIN_TEXT = 'Still one tap away 👋 Tap Join Founder Circle and you are in.';
 exports.WELCOME_TEXT = 'You are in. Welcome to Founder Circle! 🙌\n\n' +
     'You are now inside my private circle, the part that is not open to the public. ' +
@@ -81,10 +82,13 @@ async function unbanFromChannel(telegramUserId) {
  * nudge: the reminder ladder, and the Continue button on nudges already out
  * there. The unban first is what makes the link work for someone an admin
  * once removed from the channel.
+ *
+ * The button never changes; `text` is what each rung of the ladder says above
+ * it.
  */
-async function sendJoinMessage(telegramUserId) {
+async function sendJoinMessage(telegramUserId, text = exports.JOIN_TEXT) {
     await unbanFromChannel(telegramUserId);
-    const result = await sendMessageResult(telegramUserId, exports.JOIN_TEXT, joinKeyboard());
+    const result = await sendMessageResult(telegramUserId, text, joinKeyboard());
     if (result.ok)
         console.log('[join] card sent to TG', telegramUserId);
     return result;

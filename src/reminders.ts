@@ -11,6 +11,14 @@ const STAGE_DELAYS_MS = [
   72 * 60 * 60 * 1000,  // stage 3 → 72 hours after the third
 ];
 
+/** What each rung says. The button under it is always Join Founder Circle. */
+const STAGE_TEXTS = [
+  'Still here? 👋 You are one tap from Founder Circle. Join below.',
+  'Your spot in Founder Circle is still open. The real numbers and decisions are inside, come in.',
+  'You started yesterday, then life happened. Founder Circle is where I show what is really going on at Milele, unfiltered. Join below.',
+  'Last nudge, then I go quiet. If you want the behind the scenes, the button is right here. If not, no hard feelings.',
+];
+
 export const MAX_STAGE = STAGE_DELAYS_MS.length;
 
 // ── Kommo tags, so the pipeline shows what the bot has been doing ─────────────
@@ -130,9 +138,9 @@ async function sendStage(row: LeadRecord): Promise<void> {
 
   const stage = row.reminder_stage ?? 0;
 
-  // The one card the service still sends: the greeting-style text and the
-  // channel link, the same at every rung of the ladder.
-  const result = await sendJoinMessage(telegramUserId);
+  // The one card the service still sends: this rung's text, and under it the
+  // same Join Founder Circle link every time.
+  const result = await sendJoinMessage(telegramUserId, STAGE_TEXTS[stage]);
 
   if (result.blocked) {
     await updateLead(telegramUserId, { reminder_stage: MAX_STAGE });

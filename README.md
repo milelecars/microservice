@@ -208,9 +208,10 @@ update public.founder_circle_members
 ## Reminders
 
 A loop started with the server checks every 5 minutes for rows that have `link_sent_at` but no
-`joined_at`, and sends them the join card — *Still one tap away 👋 Tap Join Founder Circle and you
-are in.* under a single **Join Founder Circle** link button. Since Kommo's greeting sets
-`link_sent_at`, that is everyone who pressed Start and has not joined. **This is the only place the
+`joined_at`, and sends them the join card: a different line at each rung — *Still here?* → *Your
+spot is still open* → *You started yesterday* → *Last nudge* — under the same single
+**Join Founder Circle** link button. Since Kommo's greeting sets `link_sent_at`, that is everyone
+who pressed Start and has not joined. **This is the only place the
 service sends a card on its own**, so the person never gets one on top of Kommo's greeting. The ladder is 2 h → 8 h → 24 h → 72 h, measured from the last sign of life
 (`last_activity_at`, or `reminder_sent_at` once we have nudged), so any reply resets the clock and
 four reminders is the maximum. Nothing is sent between 23:00 and 08:00 in the person's own time —
