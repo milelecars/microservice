@@ -9,82 +9,94 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root{
-    --bg:#0B0B0D; --panel:#16161C; --line:#2A2A33; --ink:#F5F5F0; --muted:#D7D7DC; --ash:#5A5A63;
-    --lime:#AEFF02; --lime70:#C6FF4D; --lime40:#DDFF99; --purple:#4A2BAB; --purple70:#7B5BE0; --slate:#2A2A33;
+    --bg:#F5F5F0; --panel:#FFFFFF; --line:#E4E4E8; --line2:#D7D7DC; --ink:#0B0B0D; --muted:#5A5A63; --ash:#8A8A93;
+    --lime:#AEFF02; --lime70:#C6FF4D; --lime40:#DDFF99; --limeink:#3C5A00; --purple:#4A2BAB; --purple70:#7B5BE0; --purple10:#EEE9FB;
+    --graphite:#16161C; --slate:#2A2A33;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "TikTok Sans","Helvetica Neue",Arial,sans-serif}
-  .wrap{padding:28px 32px 60px}
-  header{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;margin-bottom:22px}
-  h1{font-family:"Bricolage Grotesque","TikTok Sans",sans-serif;font-size:34px;font-weight:700;letter-spacing:-0.01em;margin:0}
-  .sub{color:var(--muted);margin-top:4px}
-  .source{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "TikTok Sans","Helvetica Neue",Arial,sans-serif}
+  .wrap{padding:0 0 60px}
+  .topbar{background:var(--graphite);color:#F5F5F0;padding:18px 32px;display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between;border-bottom:3px solid var(--lime)}
+  .topbar h1{font-family:"Bricolage Grotesque","TikTok Sans",sans-serif;font-size:26px;font-weight:700;margin:0;letter-spacing:-0.01em}
+  .topbar .sub{color:#D7D7DC;font-size:14px;margin-top:2px}
+  .topbar .right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .content{padding:24px 32px 0}
   input,textarea,button,select{font:inherit}
-  input,select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--panel);color:var(--ink);min-width:200px}
-  select option{background:var(--panel)}
-  button{border:1px solid var(--lime);background:var(--lime);color:#0B0B0D;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600}
-  button.quiet{background:transparent;color:var(--ink);border-color:var(--line)}
-  button:hover{filter:brightness(1.06)}
+  input,select{border:1px solid var(--line2);border-radius:8px;padding:9px 12px;background:#fff;color:var(--ink);min-width:220px}
+  button{border:1px solid var(--lime);background:var(--lime);color:var(--ink);border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:600}
+  button.quiet{background:transparent;color:inherit;border-color:currentColor;opacity:.85}
+  .topbar button.quiet{color:#F5F5F0;border-color:#5A5A63}
+  button:hover{filter:brightness(.97)}
   button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--purple70);outline-offset:2px}
-  details{margin-top:8px;color:var(--muted);text-align:right}
-  textarea{width:100%;min-width:420px;height:110px;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px;background:var(--panel);color:var(--ink)}
-  .status{color:var(--muted);font-size:14px;margin:6px 0 0;text-align:right}
+  details{color:#D7D7DC;font-size:13px}
+  details summary{cursor:pointer}
+  textarea{width:100%;min-width:420px;height:110px;border:1px solid var(--line2);border-radius:8px;padding:10px;margin-top:8px;background:#fff;color:var(--ink)}
+  .status{color:#D7D7DC;font-size:13px}
 
-  .funnel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 22px 18px}
-  .bands{display:flex;height:110px;border-radius:8px;overflow:hidden}
-  .band{display:flex;flex-direction:column;justify-content:flex-end;padding:10px 14px;min-width:0;transition:width .5s ease}
-  .band b{font-size:30px;font-weight:700;line-height:1}
-  .band span{font-size:13px;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .b-joined{background:var(--lime);color:#0B0B0D}
-  .b-link{background:var(--lime40);color:#0B0B0D}
-  .b-answer{background:var(--slate);color:var(--ink)}
-  .b-dropped{background:var(--purple);color:var(--ink)}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-top:18px}
-  .kpi b{display:block;font-size:26px;font-weight:700}
+  .funnel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 1px 0 rgba(11,11,13,.04)}
+  .funnel h2{font-size:17px;font-weight:600;margin:0 0 14px}
+  .bands{display:flex;height:120px;border-radius:10px;overflow:hidden}
+  .band{display:flex;flex-direction:column;justify-content:flex-end;padding:12px 16px;min-width:0;transition:width .5s ease}
+  .band b{font-size:32px;font-weight:700;line-height:1}
+  .band span{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
+  .band small{font-size:12px;opacity:.8}
+  .b-joined{background:var(--lime);color:var(--ink)}
+  .b-link{background:var(--lime40);color:var(--ink)}
+  .b-answer{background:#E9E9EE;color:var(--ink)}
+  .b-dropped{background:var(--purple);color:#F5F5F0}
+  .legend{display:flex;flex-wrap:wrap;gap:18px;margin-top:12px;font-size:13px;color:var(--muted)}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:20px}
+  .kpi{background:var(--bg);border-radius:12px;padding:14px 16px}
+  .kpi b{display:block;font-size:26px;font-weight:700;line-height:1.1}
   .kpi span{color:var(--muted);font-size:13px}
+  .kpi em{display:block;font-style:normal;font-size:12px;color:var(--limeink);margin-top:4px}
   @media (prefers-reduced-motion:reduce){.band{transition:none}}
 
   .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;margin-top:16px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 18px 12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 20px 12px;box-shadow:0 1px 0 rgba(11,11,13,.04)}
   .card h2{font-size:16px;font-weight:600;margin:0 0 2px}
-  .card p{color:var(--muted);font-size:13px;margin:0 0 10px}
+  .card p{color:var(--muted);font-size:13px;margin:0 0 12px}
   .c12{grid-column:span 12}.c8{grid-column:span 8}.c6{grid-column:span 6}.c4{grid-column:span 4}
   @media (max-width:1100px){.c8,.c6,.c4{grid-column:span 6}}
-  @media (max-width:760px){.c8,.c6,.c4{grid-column:span 12}}
+  @media (max-width:760px){.c8,.c6,.c4{grid-column:span 12}.topbar,.content{padding-left:16px;padding-right:16px}}
   canvas{width:100%!important;height:280px!important}
 
   table{width:100%;border-collapse:collapse;font-size:13.5px}
-  th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
-  th{color:var(--muted);font-weight:500;position:sticky;top:0;background:var(--panel)}
-  tr:hover td{background:#1C1C24}
-  .tablewrap{overflow:auto;max-height:560px;border:1px solid var(--line);border-radius:10px}
-  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
-  .p-joined{background:var(--lime);color:#0B0B0D}.p-link{background:var(--lime40);color:#0B0B0D}.p-answer{background:var(--purple);color:var(--ink)}
-  .tools{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  th,td{text-align:left;padding:10px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--muted);font-weight:500;position:sticky;top:0;background:#fff;z-index:1}
+  tr:hover td{background:#FAFAF7}
+  .tablewrap{overflow:auto;max-height:560px;border:1px solid var(--line);border-radius:12px}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+  .p-joined{background:var(--lime);color:var(--ink)}.p-link{background:var(--lime40);color:var(--ink)}.p-answer{background:var(--purple10);color:var(--purple)}
+  .tools{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
+  .tools .count{margin-left:auto;color:var(--muted);font-size:13px}
   .empty{padding:40px;text-align:center;color:var(--muted)}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
+  <div class="topbar">
     <div>
       <h1>Founder Circle funnel</h1>
       <div class="sub" id="range">Loading…</div>
     </div>
-    <div>
-      <div class="source">
+    <div class="right">
+      <div style="display:flex;gap:8px;align-items:center">
+        <details><summary>Paste an export instead</summary>
+          <textarea id="paste" placeholder='Paste the JSON export of founder_circle_members here'></textarea>
+          <button id="pasteBtn" class="quiet" style="margin-top:8px">Use pasted data</button>
+        </details>
         <button id="refreshBtn">Refresh</button>
       </div>
-      <details>
-        <summary>Or paste an export from the table</summary>
-        <textarea id="paste" placeholder='Paste the JSON export of founder_circle_members here'></textarea>
-        <button id="pasteBtn" class="quiet" style="margin-top:8px">Use pasted data</button>
-      </details>
       <div class="status" id="status"></div>
     </div>
-  </header>
+  </div>
+  <div class="content">
   <section class="funnel" aria-label="Funnel">
+    <h2>Where everyone who tapped a link is right now</h2>
     <div class="bands" id="bands"></div>
+    <div class="legend"><span><i style="background:var(--lime)"></i>Joined the channel</span><span><i style="background:var(--lime40)"></i>Have the link, not joined yet</span><span><i style="background:#E9E9EE"></i>Still answering</span><span><i style="background:var(--purple)"></i>Tapped Start, never answered</span></div>
     <div class="kpis" id="kpis"></div>
   </section>
 
@@ -97,7 +109,7 @@
     <div class="card c4"><h2>Interest</h2><p>Members only</p><canvas id="interest"></canvas></div>
     <div class="card c4"><h2>Country</h2><p>Top ten, members only</p><canvas id="country"></canvas></div>
     <div class="card c12">
-      <h2>People</h2><p>Everyone in the table. Search, filter, export.</p>
+      <h2>People</h2><p>Everyone who has ever started, newest first.</p>
       <div class="tools">
         <input id="search" placeholder="Search name, username, email, phone">
         <select id="stageFilter">
@@ -108,6 +120,7 @@
         </select>
         <select id="sourceFilter"><option value="">Every source</option></select>
         <button id="csvBtn" class="quiet">Download CSV</button>
+        <span class="count" id="count"></span>
       </div>
       <div class="tablewrap"><table id="table"><thead><tr>
         <th>Name</th><th>Username</th><th>Source</th><th>Stage</th><th>Country</th><th>Age</th><th>Interest</th><th>Phone</th><th>Email</th><th>Started</th><th>Joined</th>
@@ -115,10 +128,11 @@
     </div>
   </div>
 </div>
-
+  </div>
+</div>
 <script>
 const TZ='Asia/Dubai';
-Chart.defaults.color='#D7D7DC'; Chart.defaults.font.family='"TikTok Sans",sans-serif';
+Chart.defaults.color='#5A5A63'; Chart.defaults.font.family='"TikTok Sans",sans-serif';
 let rows=[], charts={};
 const $=s=>document.querySelector(s);
 const fmt=n=>n.toLocaleString();
@@ -171,11 +185,12 @@ function render(){
     ['b-answer',answering.length-stopped.length,'Answering'],
     ['b-dropped',stopped.length,'Never started'],
   ];
-  $('#bands').innerHTML=bands.map(([c,n,l])=>`<div class="band ${c}" style="width:${Math.max(n/total*100,n?6:0)}%" title="${l}: ${n}"><b>${n}</b><span>${l}</span></div>`).join('');
+  $('#bands').innerHTML=bands.map(([c,n,l])=>`<div class="band ${c}" style="width:${Math.max(n/total*100,n?7:0)}%" title="${l}: ${n}"><b>${n}</b><span>${l} <small>${pct(n,total)}</small></span></div>`).join('');
+  const todayKey=dayKey(new Date()); const todayS=rows.filter(r=>r.started_at&&dayKey(r.started_at)===todayKey).length, todayJ=rows.filter(r=>r.joined_at&&dayKey(r.joined_at)===todayKey).length;
   $('#kpis').innerHTML=[
-    [fmt(total),'started'],[pct(joined.length,total),'join rate'],[fmt(inChannel),'in the channel now'],[fmt(left),'left after joining'],
-    [median?median.toFixed(1)+' min':'–','median start to join'],[fmt(link.length),'have the link, not joined'],
-  ].map(([b,s])=>`<div class="kpi"><b>${b}</b><span>${s}</span></div>`).join('');
+    [fmt(total),'people started',`${todayS} today`],[pct(joined.length,total),'ended up in the channel',`${todayJ} joined today`],[fmt(inChannel),'in the channel now',''],[fmt(left),'left after joining',''],
+    [median?median.toFixed(1)+' min':'–','typical time from Start to joined',''],[fmt(link.length),'holding a link, not joined',''],
+  ].map(([b,s,e])=>`<div class="kpi"><b>${b}</b><span>${s}</span>${e?`<em>${e}</em>`:''}</div>`).join('');
 
   // daily
   const days={}; rows.forEach(r=>{ if(r.started_at){const k=dayKey(r.started_at);days[k]=days[k]||{s:0,j:0};days[k].s++}
@@ -183,7 +198,7 @@ function render(){
   const dk=Object.keys(days).sort();
   chart('daily','line',{labels:dk.map(d=>day(d)),datasets:[
     {label:'Started',data:dk.map(k=>days[k].s),borderColor:'#7B5BE0',backgroundColor:'#7B5BE0',tension:.3},
-    {label:'Joined',data:dk.map(k=>days[k].j),borderColor:'#AEFF02',backgroundColor:'#AEFF02',tension:.3}]});
+    {label:'Joined',data:dk.map(k=>days[k].j),borderColor:'#7CB800',backgroundColor:'#AEFF02',tension:.3}]});
 
   // stops
   const stopOrder=['Welcome / name','Country','Age','Interest','Phone','Email'];
@@ -193,17 +208,17 @@ function render(){
   // sources
   const bySrc={}; rows.forEach(r=>{const s=src(r);bySrc[s]=bySrc[s]||{s:0,j:0};bySrc[s].s++;if(r.joined_at)bySrc[s].j++});
   const sk=Object.keys(bySrc).sort((a,b)=>bySrc[b].s-bySrc[a].s);
-  chart('sources','bar',{labels:sk,datasets:[{label:'Started',data:sk.map(k=>bySrc[k].s),backgroundColor:'#5A5A63'},{label:'Joined',data:sk.map(k=>bySrc[k].j),backgroundColor:'#AEFF02'}]});
-  chart('rates','bar',{labels:sk,datasets:[{label:'Join rate %',data:sk.map(k=>bySrc[k].s?Math.round(bySrc[k].j/bySrc[k].s*100):0),backgroundColor:'#AEFF02'}]},{scales:{y:{min:0,max:100}}});
+  chart('sources','bar',{labels:sk,datasets:[{label:'Started',data:sk.map(k=>bySrc[k].s),backgroundColor:'#C9C9D1'},{label:'Joined',data:sk.map(k=>bySrc[k].j),backgroundColor:'#AEFF02',borderColor:'#7CB800',borderWidth:1}]});
+  chart('rates','bar',{labels:sk,datasets:[{label:'Join rate %',data:sk.map(k=>bySrc[k].s?Math.round(bySrc[k].j/bySrc[k].s*100):0),backgroundColor:'#AEFF02',borderColor:'#7CB800',borderWidth:1}]},{scales:{y:{min:0,max:100}}});
 
   // members breakdowns
   const cnt=(arr,f)=>{const o={};arr.forEach(r=>{const v=f(r);if(v)o[v]=(o[v]||0)+1});return o};
   const ages=cnt(joined,r=>r.age_bracket); const ao=['Under 18','18 to 24','25 to 34','35 to 44','45 above'];
-  chart('age','bar',{labels:ao,datasets:[{label:'Members',data:ao.map(a=>ages[a]||0),backgroundColor:'#AEFF02'}]});
+  chart('age','bar',{labels:ao,datasets:[{label:'Members',data:ao.map(a=>ages[a]||0),backgroundColor:'#AEFF02',borderColor:'#7CB800',borderWidth:1}]});
   const ints=cnt(joined,r=>r.interest); const io=Object.keys(ints).sort((a,b)=>ints[b]-ints[a]);
-  chart('interest','bar',{labels:io,datasets:[{label:'Members',data:io.map(i=>ints[i]),backgroundColor:'#AEFF02'}]},{indexAxis:'y'});
+  chart('interest','bar',{labels:io,datasets:[{label:'Members',data:io.map(i=>ints[i]),backgroundColor:'#AEFF02',borderColor:'#7CB800',borderWidth:1}]},{indexAxis:'y'});
   const ctry=cnt(joined,r=>r.country&&r.country.trim().replace(/\b\w/g,c=>c.toUpperCase())); const co=Object.keys(ctry).sort((a,b)=>ctry[b]-ctry[a]).slice(0,10);
-  chart('country','bar',{labels:co,datasets:[{label:'Members',data:co.map(c=>ctry[c]),backgroundColor:'#AEFF02'}]},{indexAxis:'y'});
+  chart('country','bar',{labels:co,datasets:[{label:'Members',data:co.map(c=>ctry[c]),backgroundColor:'#AEFF02',borderColor:'#7CB800',borderWidth:1}]},{indexAxis:'y'});
 
   const sf=$('#sourceFilter'); sf.innerHTML='<option value="">Every source</option>'+sk.map(s=>`<option value="${s}">${s}</option>`).join('');
   renderTable();
@@ -212,8 +227,8 @@ function render(){
 function chart(id,type,data,extra={}){
   if(charts[id]) charts[id].destroy();
   charts[id]=new Chart($('#'+id),{type,data,options:Object.assign({responsive:true,maintainAspectRatio:false,
-    plugins:{legend:{display:data.datasets.length>1,position:'bottom',labels:{color:'#D7D7DC'}}},
-    scales:{x:{grid:{display:false},ticks:{color:'#D7D7DC'}},y:{grid:{color:'#2A2A33'},ticks:{precision:0,color:'#D7D7DC'}}}},extra)});
+    plugins:{legend:{display:data.datasets.length>1,position:'bottom',labels:{color:'#5A5A63'}}},
+    scales:{x:{grid:{display:false},ticks:{color:'#5A5A63'}},y:{grid:{color:'#EEEEF2'},ticks:{precision:0,color:'#5A5A63'}}}},extra)});
 }
 
 function filtered(){
@@ -226,6 +241,7 @@ function renderTable(){
   if(!data.length){tb.innerHTML='<tr><td colspan="11" class="empty">Nothing matches. Clear the search or the filters.</td></tr>';return}
   const stamp=d=>d?new Date(d).toLocaleString('en-GB',{timeZone:TZ,day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'';
   const pill=r=>{const s=stageOf(r);return s==='joined'?'<span class="pill p-joined">Joined</span>':s==='link'?'<span class="pill p-link">Link sent</span>':`<span class="pill p-answer">Stopped at ${stopOf(r).toLowerCase()}</span>`};
+  $('#count').textContent=fmt(data.length)+' of '+fmt(rows.length);
   tb.innerHTML=data.map(r=>`<tr><td>${esc(r.name||'')}</td><td>${esc(r.telegram_username||'')}</td><td>${esc(src(r))}</td><td>${pill(r)}</td><td>${esc(r.country||'')}</td><td>${esc(r.age_bracket||'')}</td><td>${esc(r.interest||'')}</td><td>${esc(r.phone||'')}</td><td>${esc(r.email||'')}</td><td>${stamp(r.started_at)}</td><td>${stamp(r.joined_at)}</td></tr>`).join('');
 }
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
