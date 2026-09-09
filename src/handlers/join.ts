@@ -1,5 +1,5 @@
 import { addLeadTags, setContactStatus } from '../kommo';
-import { unbanFromChannel } from '../telegram-api';
+import { sendGreeting, unbanFromChannel } from '../telegram-api';
 import { getLead, updateLead, nowIso, LeadRecord } from './supabase';
 
 const LINK_SENT_TAG = 'Link sent';
@@ -14,16 +14,18 @@ function withLinkSentTag(current: string | undefined): string {
 }
 
 /**
- * Record that this person has the link. Kommo's "Greet and Join" bot sends the
- * greeting and the Join button itself, so the service sends nothing here — it
- * only writes down what Kommo just did, which is what the reminder loop, the
- * dashboard and the Kommo pipeline all read.
+ * The greeting, and the record that this person has the link.
  *
- * The unban is still ours: while a leftover ban stands, every invite link tells
+ * The card is sent by the bot itself rather than by Kommo's "Greet and Join"
+ * bot: anything Kommo sends leaves through its chat channel, which rewrites the
+ * button's link to kommo.cc. Sent from here it opens Telegram directly.
+ *
+ * The unban is ours too: while a leftover ban stands, every invite link tells
  * that person the link has expired.
  *
  * `link_sent_at` is stamped once and never moved, so the timeline still shows
- * when this person first got the link.
+ * when this person first got the link, and `join_message_sent` keeps the
+ * greeting to one per row however often /start is pressed.
  */
 export async function markLinkSent(
   telegramUserId: number | string,
@@ -31,10 +33,7 @@ export async function markLinkSent(
 ): Promise<void> {
   const row = known ?? (await getLead(telegramUserId));
 
-  const changes: Partial<LeadRecord> = {
-    join_message_sent: true,
-    current_tag:       withLinkSentTag(row?.current_tag),
-  };
+  const changes: Partial<LeadRecord> = { current_tag: withLinkSentTag(row?.current_tag) };
   if (!row?.link_sent_at) changes.link_sent_at = nowIso();
   await updateLead(telegramUserId, changes);
 
@@ -46,4 +45,15 @@ export async function markLinkSent(
   if (row?.kommo_contact_id) await setContactStatus(row.kommo_contact_id, 'link sent');
 
   console.log('[join] link marked sent | TG', telegramUserId);
+
+  if (row?.join_message_sent) {
+    console.log('[greet] already greeted | TG', telegramUserId);
+    return;
+  }
+
+  // Stamped only once it has actually gone out, so a refused send is greeted
+  // again on the next /start.
+  if (await sendGreeting(telegramUserId)) {
+    await updateLead(telegramUserId, { join_message_sent: true });
+  }
 }

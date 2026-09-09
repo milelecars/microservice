@@ -30,6 +30,17 @@ export function joinKeyboard(): ReplyMarkup {
 /** What the card says when the caller has nothing more specific to say. */
 export const JOIN_TEXT = 'Still one tap away 👋 Tap Join Founder Circle and you are in.';
 
+/**
+ * The greeting card, sent by the bot itself on /start. Kommo's own bot must not
+ * send this one: everything Kommo sends goes out through its chat channel,
+ * which rewrites links to kommo.cc. Sent from here, the button opens Telegram
+ * directly — the same mechanism as the welcome below.
+ */
+export const GREETING_TEXT =
+  'Welcome to Founder Circle! 👋\n\n' +
+  'This is my private channel: the real numbers, the real decisions, the things that never make it to the feed. Unfiltered.\n\n' +
+  'Tap the button below to join. That is all, I will see you inside.';
+
 export const WELCOME_TEXT =
   'You are in. Welcome to Founder Circle! 🙌\n\n' +
   'You are now inside my private circle, the part that is not open to the public. ' +
@@ -121,6 +132,13 @@ export async function sendJoinMessage(
   const result = await sendMessageResult(telegramUserId, text, joinKeyboard());
   if (result.ok) console.log('[join] card sent to TG', telegramUserId);
   return result;
+}
+
+/** The greeting card and its Join button. False when Telegram refused it. */
+export async function sendGreeting(telegramUserId: number | string): Promise<boolean> {
+  const sent = await sendMessage(telegramUserId, GREETING_TEXT, joinKeyboard());
+  if (sent) console.log('[greet] sent to TG', telegramUserId);
+  return sent;
 }
 
 /** Stop the button's spinner. Failures here are cosmetic. */

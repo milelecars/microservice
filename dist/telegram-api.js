@@ -3,13 +3,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WELCOME_TEXT = exports.JOIN_TEXT = void 0;
+exports.WELCOME_TEXT = exports.GREETING_TEXT = exports.JOIN_TEXT = void 0;
 exports.inviteLink = inviteLink;
 exports.joinKeyboard = joinKeyboard;
 exports.sendMessageResult = sendMessageResult;
 exports.sendMessage = sendMessage;
 exports.unbanFromChannel = unbanFromChannel;
 exports.sendJoinMessage = sendJoinMessage;
+exports.sendGreeting = sendGreeting;
 exports.answerCallbackQuery = answerCallbackQuery;
 exports.getChatMemberStatus = getChatMemberStatus;
 exports.isInChannelStatus = isInChannelStatus;
@@ -30,6 +31,15 @@ function joinKeyboard() {
 }
 /** What the card says when the caller has nothing more specific to say. */
 exports.JOIN_TEXT = 'Still one tap away 👋 Tap Join Founder Circle and you are in.';
+/**
+ * The greeting card, sent by the bot itself on /start. Kommo's own bot must not
+ * send this one: everything Kommo sends goes out through its chat channel,
+ * which rewrites links to kommo.cc. Sent from here, the button opens Telegram
+ * directly — the same mechanism as the welcome below.
+ */
+exports.GREETING_TEXT = 'Welcome to Founder Circle! 👋\n\n' +
+    'This is my private channel: the real numbers, the real decisions, the things that never make it to the feed. Unfiltered.\n\n' +
+    'Tap the button below to join. That is all, I will see you inside.';
 exports.WELCOME_TEXT = 'You are in. Welcome to Founder Circle! 🙌\n\n' +
     'You are now inside my private circle, the part that is not open to the public. ' +
     'This is where I share the real numbers, the real decisions and the things that never make it to the feed. Unfiltered.\n\n' +
@@ -92,6 +102,13 @@ async function sendJoinMessage(telegramUserId, text = exports.JOIN_TEXT) {
     if (result.ok)
         console.log('[join] card sent to TG', telegramUserId);
     return result;
+}
+/** The greeting card and its Join button. False when Telegram refused it. */
+async function sendGreeting(telegramUserId) {
+    const sent = await sendMessage(telegramUserId, exports.GREETING_TEXT, joinKeyboard());
+    if (sent)
+        console.log('[greet] sent to TG', telegramUserId);
+    return sent;
 }
 /** Stop the button's spinner. Failures here are cosmetic. */
 async function answerCallbackQuery(callbackQueryId, text) {

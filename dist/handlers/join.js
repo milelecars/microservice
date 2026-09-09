@@ -14,23 +14,22 @@ function withLinkSentTag(current) {
     return names.join(', ');
 }
 /**
- * Record that this person has the link. Kommo's "Greet and Join" bot sends the
- * greeting and the Join button itself, so the service sends nothing here — it
- * only writes down what Kommo just did, which is what the reminder loop, the
- * dashboard and the Kommo pipeline all read.
+ * The greeting, and the record that this person has the link.
  *
- * The unban is still ours: while a leftover ban stands, every invite link tells
+ * The card is sent by the bot itself rather than by Kommo's "Greet and Join"
+ * bot: anything Kommo sends leaves through its chat channel, which rewrites the
+ * button's link to kommo.cc. Sent from here it opens Telegram directly.
+ *
+ * The unban is ours too: while a leftover ban stands, every invite link tells
  * that person the link has expired.
  *
  * `link_sent_at` is stamped once and never moved, so the timeline still shows
- * when this person first got the link.
+ * when this person first got the link, and `join_message_sent` keeps the
+ * greeting to one per row however often /start is pressed.
  */
 async function markLinkSent(telegramUserId, known) {
     const row = known ?? (await (0, supabase_1.getLead)(telegramUserId));
-    const changes = {
-        join_message_sent: true,
-        current_tag: withLinkSentTag(row?.current_tag),
-    };
+    const changes = { current_tag: withLinkSentTag(row?.current_tag) };
     if (!row?.link_sent_at)
         changes.link_sent_at = (0, supabase_1.nowIso)();
     await (0, supabase_1.updateLead)(telegramUserId, changes);
@@ -42,4 +41,13 @@ async function markLinkSent(telegramUserId, known) {
     if (row?.kommo_contact_id)
         await (0, kommo_1.setContactStatus)(row.kommo_contact_id, 'link sent');
     console.log('[join] link marked sent | TG', telegramUserId);
+    if (row?.join_message_sent) {
+        console.log('[greet] already greeted | TG', telegramUserId);
+        return;
+    }
+    // Stamped only once it has actually gone out, so a refused send is greeted
+    // again on the next /start.
+    if (await (0, telegram_api_1.sendGreeting)(telegramUserId)) {
+        await (0, supabase_1.updateLead)(telegramUserId, { join_message_sent: true });
+    }
 }

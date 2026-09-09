@@ -179,10 +179,10 @@ async function handleTelegramWebhook(req, res) {
                 last_activity_at: (0, supabase_1.nowIso)(),
             }, { onlyIfNull: ['original_source_platform', 'started_at'] });
             console.log('[telegram] row upserted | TG user:', telegramUserId);
-            // Kommo's "Greet and Join" bot greets and sends the Join button itself
-            // on every new conversation, so the service sends nothing here — it only
-            // writes down that this person now has the link.
-            if (isStartCommand && !existing?.link_sent_at) {
+            // The greeting card is ours: sent from Kommo, its button would be
+            // rewritten to a kommo.cc link. markLinkSent greets once per row and
+            // records that this person now has the link.
+            if (isStartCommand && (!existing?.link_sent_at || !existing?.join_message_sent)) {
                 await (0, join_1.markLinkSent)(telegramUserId);
             }
         }
