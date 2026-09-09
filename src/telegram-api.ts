@@ -41,6 +41,9 @@ export const GREETING_TEXT =
   'This is my private channel: the real numbers, the real decisions, the things that never make it to the feed. Unfiltered.\n\n' +
   'Tap the button below to join. That is all, I will see you inside.';
 
+/** For someone who presses /start when they are already in the channel. */
+export const ALREADY_JOINED_TEXT = 'You are already in Founder Circle 🙌';
+
 export const WELCOME_TEXT =
   'You are in. Welcome to Founder Circle! 🙌\n\n' +
   'You are now inside my private circle, the part that is not open to the public. ' +
@@ -138,6 +141,13 @@ export async function sendJoinMessage(
 export async function sendGreeting(telegramUserId: number | string): Promise<boolean> {
   const sent = await sendMessage(telegramUserId, GREETING_TEXT, joinKeyboard());
   if (sent) console.log('[greet] sent to TG', telegramUserId);
+  return sent;
+}
+
+/** The one-liner for someone who is already inside. No button: they are in. */
+export async function sendAlreadyJoined(telegramUserId: number | string): Promise<boolean> {
+  const sent = await sendMessage(telegramUserId, ALREADY_JOINED_TEXT);
+  if (sent) console.log('[greet] already-in line sent to TG', telegramUserId);
   return sent;
 }
 

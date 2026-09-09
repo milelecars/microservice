@@ -263,10 +263,10 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       console.log('[telegram] row upserted | TG user:', telegramUserId);
 
       // The greeting card is ours: sent from Kommo, its button would be
-      // rewritten to a kommo.cc link. markLinkSent greets once per row and
-      // records that this person now has the link.
-      if (isStartCommand && (!existing?.link_sent_at || !existing?.join_message_sent)) {
-        await markLinkSent(telegramUserId);
+      // rewritten to a kommo.cc link. Every /start is answered with it — or
+      // with the one-liner, for someone who is already inside.
+      if (isStartCommand) {
+        await markLinkSent(telegramUserId, existing);
       }
     } catch (err) {
       console.error('[telegram] error:', errText(err));

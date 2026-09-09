@@ -27,8 +27,10 @@ It also still serves the two Weex checks used by the older funnel (`/verify/regi
 5. On that same `/start` the service stamps `link_sent_at` and the `Link sent` tag, lifts any
    leftover channel ban (`unbanChatMember`, `only_if_banned`) so the link works, writes `link sent`
    into contact field `1003176`, and sends the greeting card from the bot — one paragraph of
-   welcome under a single *Join Founder Circle* URL button. `join_message_sent` is stamped once the
-   card has actually gone out, and keeps it to one per row however often `/start` is pressed.
+   welcome under a single *Join Founder Circle* URL button. Every `/start` from someone outside the
+   channel gets the card again; only a second `/start` within 60 seconds is swallowed. Someone who
+   is already in the channel gets *You are already in Founder Circle* instead, and none of the
+   link-sent bookkeeping.
 6. Kommo's "contact added/updated" webhook hits `POST /webhook/contact`, which keeps the name, the
    tags and the Kommo ids in Supabase, and writes `link sent` into `1003176` once Kommo has a
    contact to write it to.
@@ -182,8 +184,8 @@ Keyed by `telegram_user_id`.
 | `lost_at` | stage, on Lost |
 | `in_channel` | stage, channel, `chat_member` |
 | `join_check_failures` | `/verify/channel`, incremented on every failed check |
-| `join_message_sent` | telegram — the greeting card went out; guards it to one per row |
-| `join_message_sent_at` | nothing writes it any more — left from the era when the service threw the card |
+| `join_message_sent` | telegram — a record that the greeting card has gone out; never suppresses a send |
+| `join_message_sent_at` | telegram — last greeting or already-in line, and the only thing that holds a send back: two inside 60 seconds are one `/start` counted twice |
 | `welcome_sent` | welcome routine — the welcome went out once |
 | `last_activity_at` | telegram — every message or button tap from the person |
 | `reminder_stage` | reminders — 0-4, how many nudges have gone out |

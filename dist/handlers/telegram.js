@@ -180,10 +180,10 @@ async function handleTelegramWebhook(req, res) {
             }, { onlyIfNull: ['original_source_platform', 'started_at'] });
             console.log('[telegram] row upserted | TG user:', telegramUserId);
             // The greeting card is ours: sent from Kommo, its button would be
-            // rewritten to a kommo.cc link. markLinkSent greets once per row and
-            // records that this person now has the link.
-            if (isStartCommand && (!existing?.link_sent_at || !existing?.join_message_sent)) {
-                await (0, join_1.markLinkSent)(telegramUserId);
+            // rewritten to a kommo.cc link. Every /start is answered with it — or
+            // with the one-liner, for someone who is already inside.
+            if (isStartCommand) {
+                await (0, join_1.markLinkSent)(telegramUserId, existing);
             }
         }
         catch (err) {
