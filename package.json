@@ -10,7 +10,8 @@
     "dev": "ts-node src/index.ts",
     "set-webhook": "ts-node src/scripts/setWebhook.ts",
     "test:pending": "ts-node -P tsconfig.test.json scripts/test-pending.ts",
-    "test:reminder-tags": "ts-node -P tsconfig.test.json scripts/test-reminder-tags.ts"
+    "test:reminder-tags": "ts-node -P tsconfig.test.json scripts/test-reminder-tags.ts",
+    "test:blocked": "ts-node -P tsconfig.test.json scripts/test-blocked.ts"
   },
   "dependencies": {
     "axios": "^1.6.0",

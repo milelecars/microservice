@@ -1,5 +1,5 @@
 import { STAGE, KommoLead, get as kommoGet, patch as kommoPatch, closeTalk, setContactStatus } from '../kommo';
-import { WELCOME_TEXT, sendMessage } from '../telegram-api';
+import { WELCOME_TEXT, sendMessageResult } from '../telegram-api';
 import { getLead, updateLead, nowIso, LeadRecord } from './supabase';
 
 const LINK_SENT_TAG = 'Link sent';
@@ -57,8 +57,15 @@ export async function welcomeUser(
     return;
   }
 
-  const sent = await sendMessage(telegramUserId, WELCOME_TEXT);
-  if (sent) changes.welcome_sent = true;
+  const result = await sendMessageResult(telegramUserId, WELCOME_TEXT);
+
+  // handleBlocked has just closed this row off and moved the lead to Lost.
+  // Writing in_channel / joined_at now would only contradict it.
+  if (result.blocked) {
+    console.log('[welcome] TG', telegramUserId, 'has blocked the bot - left as Lost');
+    return;
+  }
+  if (result.ok) changes.welcome_sent = true;
 
   await updateLead(telegramUserId, changes);
   await markLeadJoined(row);

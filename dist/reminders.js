@@ -12,7 +12,8 @@ const env_1 = require("./env");
 const kommo_1 = require("./kommo");
 const telegram_api_1 = require("./telegram-api");
 const supabase_1 = require("./handlers/supabase");
-/** How long after the last sign of life each reminder goes out. */
+Object.defineProperty(exports, "MAX_STAGE", { enumerable: true, get: function () { return supabase_1.MAX_STAGE; } });
+/** How long after the last sign of life each reminder goes out. MAX_STAGE rungs. */
 const STAGE_DELAYS_MS = [
     2 * 60 * 60 * 1000, // stage 0 → first reminder after 2 hours
     8 * 60 * 60 * 1000, // stage 1 → 8 hours after the first
@@ -26,11 +27,9 @@ const STAGE_TEXTS = [
     'You started yesterday, then life happened. Founder Circle is where I show what is really going on at Milele, unfiltered. Join below.',
     'Last nudge, then I go quiet. If you want the behind the scenes, the button is right here. If not, no hard feelings.',
 ];
-exports.MAX_STAGE = STAGE_DELAYS_MS.length;
 // ── Kommo tags, so the pipeline shows what the bot has been doing ─────────────
 /** Tag for the nudge that just went out, from the stage it was sent at. */
 const reminderTag = (stage) => `Reminder ${stage + 1} sent`;
-const BLOCKED_TAG = 'Bot blocked';
 exports.RESUMED_TAG = 'Resumed after reminder';
 /** Tag the Kommo lead behind a row, keeping every tag it already has. */
 async function tagLead(row, tag) {
@@ -119,7 +118,7 @@ function lastSignal(row) {
 }
 function isDue(row, now = Date.now()) {
     const stage = row.reminder_stage ?? 0;
-    if (stage >= exports.MAX_STAGE)
+    if (stage >= supabase_1.MAX_STAGE)
         return false;
     const since = lastSignal(row);
     if (Number.isNaN(since))
@@ -134,9 +133,9 @@ async function sendStage(row) {
     // The one card the service still sends: this rung's text, and under it the
     // same Join Founder Circle link every time.
     const result = await (0, telegram_api_1.sendJoinMessage)(telegramUserId, STAGE_TEXTS[stage]);
+    // handleBlocked, from inside the send, has already taken this row out of the
+    // ladder and moved the lead to Lost.
     if (result.blocked) {
-        await (0, supabase_1.updateLead)(telegramUserId, { reminder_stage: exports.MAX_STAGE });
-        await tagLead(row, BLOCKED_TAG);
         console.log('[reminder] TG', telegramUserId, 'blocked the bot - no more reminders');
         return;
     }
@@ -149,7 +148,7 @@ async function sendStage(row) {
 /** One pass over everyone who has the link but never joined the channel. */
 async function runRemindersOnce() {
     const rows = await (0, supabase_1.queryLeads)('link_sent_at=not.is.null&joined_at=is.null' +
-        `&reminder_stage=lt.${exports.MAX_STAGE}&limit=500`);
+        `&reminder_stage=lt.${supabase_1.MAX_STAGE}&limit=500`);
     let sent = 0;
     for (const row of rows) {
         if (!row.telegram_user_id || !isDue(row))

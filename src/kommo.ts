@@ -158,8 +158,11 @@ export async function post<T>(path: string, body: unknown): Promise<T | null> {
 
 // ── Contact status (field 1003176) ────────────────────────────────────────────
 
-/** Values the Salesbot routes on, in contact field 1003176. */
-export type ContactStatus = 'joined' | 'link sent' | '';
+/**
+ * Values the Salesbot routes on, in contact field 1003176. `blocked` is written
+ * by handleBlocked and means nothing more can reach this person on Telegram.
+ */
+export type ContactStatus = 'joined' | 'link sent' | 'blocked' | '';
 
 /**
  * Where this person stands, as contact field 1003176 spells it. The greeting

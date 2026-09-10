@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { handleBlocked } from './blocked';
 import { requireEnv, errText } from './env';
 
 /** Founder Circle invite link. Overridable without a deploy. */
@@ -80,7 +81,15 @@ export async function sendMessageResult(
     return { ok: true, blocked: false };
   } catch (err) {
     if (axios.isAxiosError(err) && err.response?.status === 403) {
+      // 403 is Telegram saying this person is unreachable for good - blocked
+      // the bot, or the chat is gone. Every send path funnels through here, so
+      // closing them off happens once, in one place.
       console.warn('[telegram-api] TG', chatId, 'has blocked the bot - message not sent');
+      try {
+        await handleBlocked(chatId);
+      } catch (blockedErr) {
+        console.error('[telegram-api] handleBlocked failed for TG', chatId, '|', errText(blockedErr));
+      }
       return { ok: false, blocked: true };
     }
     console.error('[telegram-api] sendMessage failed for TG', chatId, '|', errText(err));

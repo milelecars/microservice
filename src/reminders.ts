@@ -1,9 +1,13 @@
 import { errText } from './env';
 import { addLeadTags } from './kommo';
 import { sendJoinMessage } from './telegram-api';
-import { queryLeads, updateLead, nowIso, LeadRecord } from './handlers/supabase';
+import { queryLeads, updateLead, nowIso, LeadRecord, MAX_STAGE } from './handlers/supabase';
 
-/** How long after the last sign of life each reminder goes out. */
+// The ladder's length lives with the column it writes, so the code that stops
+// the ladder (see ./blocked) does not have to reach back in here for it.
+export { MAX_STAGE };
+
+/** How long after the last sign of life each reminder goes out. MAX_STAGE rungs. */
 const STAGE_DELAYS_MS = [
   2 * 60 * 60 * 1000,   // stage 0 → first reminder after 2 hours
   8 * 60 * 60 * 1000,   // stage 1 → 8 hours after the first
@@ -19,14 +23,11 @@ const STAGE_TEXTS = [
   'Last nudge, then I go quiet. If you want the behind the scenes, the button is right here. If not, no hard feelings.',
 ];
 
-export const MAX_STAGE = STAGE_DELAYS_MS.length;
-
 // ── Kommo tags, so the pipeline shows what the bot has been doing ─────────────
 
 /** Tag for the nudge that just went out, from the stage it was sent at. */
 const reminderTag = (stage: number) => `Reminder ${stage + 1} sent`;
 
-const BLOCKED_TAG = 'Bot blocked';
 export const RESUMED_TAG = 'Resumed after reminder';
 
 /** Tag the Kommo lead behind a row, keeping every tag it already has. */
@@ -142,9 +143,9 @@ async function sendStage(row: LeadRecord): Promise<void> {
   // same Join Founder Circle link every time.
   const result = await sendJoinMessage(telegramUserId, STAGE_TEXTS[stage]);
 
+  // handleBlocked, from inside the send, has already taken this row out of the
+  // ladder and moved the lead to Lost.
   if (result.blocked) {
-    await updateLead(telegramUserId, { reminder_stage: MAX_STAGE });
-    await tagLead(row, BLOCKED_TAG);
     console.log('[reminder] TG', telegramUserId, 'blocked the bot - no more reminders');
     return;
   }

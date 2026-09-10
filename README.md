@@ -156,8 +156,10 @@ never on the name.
 
 **Tags** — `Link sent` goes on at greeting time, with the card; `Joined Channel`
 is set when the `chat_member` join arrives. The reminder loop adds `Reminder 1 sent` … `Reminder 4 sent` as each nudge goes
-out, `Bot blocked` instead when Telegram answers 403, and `Resumed after reminder` the first time a
-nudged person comes back. All of these are appended — existing tags are never removed.
+out, and `Resumed after reminder` the first time a nudged person comes back. `Bot blocked` goes on
+whenever Telegram answers 403 to any send — see [Blocked by the user](#blocked-by-the-user), the one
+place that also removes a tag (`Link sent`, which is moot once we are blocked). Everything else is
+appended, never removed.
 
 ## Supabase `leads` columns
 
@@ -181,14 +183,14 @@ Keyed by `telegram_user_id`.
 | `link_sent_at` | telegram, on the `/start` that sends the join card (once) |
 | `joined_at` | stage / channel / `chat_member`, first join only |
 | `left_at` | `chat_member`, on leave or kick |
-| `lost_at` | stage, on Lost |
+| `lost_at` | stage, on Lost — and `handleBlocked`, on a 403 from Telegram |
 | `in_channel` | stage, channel, `chat_member` |
 | `join_check_failures` | `/verify/channel`, incremented on every failed check |
 | `join_message_sent` | telegram — a record that the greeting card has gone out; never suppresses a send |
 | `join_message_sent_at` | telegram — last greeting or already-in line, and the only thing that holds a send back: two inside 60 seconds are one `/start` counted twice |
 | `welcome_sent` | welcome routine — the welcome went out once |
 | `last_activity_at` | telegram — every message or button tap from the person |
-| `reminder_stage` | reminders — 0-4, how many nudges have gone out |
+| `reminder_stage` | reminders — 0-4, how many nudges have gone out; `handleBlocked` writes 4 to stop the ladder |
 | `reminder_sent_at` | reminders — when the last nudge went out |
 
 These three are newer than that migration — add them with:
@@ -218,7 +220,8 @@ everyone who pressed Start and has not joined. The ladder is 2 h → 8 h → 24 
 (`last_activity_at`, or `reminder_sent_at` once we have nudged), so any reply resets the clock and
 four reminders is the maximum. Nothing is sent between 23:00 and 08:00 in the person's own time —
 guessed from their phone's dialling code, falling back to Asia/Dubai — the row is simply picked up
-on a later run. Someone who has blocked the bot is moved straight to stage 4.
+on a later run. Someone who has blocked the bot is handled by `handleBlocked` below, which takes them
+out of the ladder for good.
 
 Nudges sent before this change carry a **Continue ▶️** button; tapping it sends the join card
 again, so those messages keep working. Nothing new carries that button.
@@ -234,6 +237,37 @@ and answers with the count. Pass `{"telegram_user_id": 123}` to target one perso
 
 The table and these columns are created by `supabase_founder_circle.sql`. The service never creates
 tables — it only reads and writes rows through the Supabase REST API.
+
+## Blocked by the user
+
+A 403 from Telegram means this person is gone for good: they blocked the bot, or the chat no longer
+exists. Every send goes through `sendMessageResult` in `src/telegram-api.ts`, so the 403 is caught in
+one place and `handleBlocked` (`src/blocked.ts`) runs once, whichever send it was — greeting,
+reminder, welcome or anything added later:
+
+- **Supabase** — `lost_at` = now, `in_channel` = false, `reminder_stage` = 4, so no reminder ever goes
+  out again.
+- **Kommo lead** — moved to `102006171` Lost with the loss reason left empty, tagged `Bot blocked`,
+  and the `Link sent` tag removed.
+- **Kommo contact** — field `1003176` set to `blocked`.
+- **Kommo talk** — closed with `force_close`.
+- Logs `[blocked] TG <id> -> Lost`.
+
+It is idempotent: a row that already has `lost_at` is skipped. Only 403 counts — a 429 or a network
+error is a failed send, not a block, and the person stays in the ladder.
+
+### Startup sweep
+
+Once per deploy, right after the server starts listening, `sweepBlocked()` catches up on everyone the
+bot gave up on before this existed:
+
+- every Supabase row with `reminder_stage` ≥ 4, no `joined_at` and no `lost_at` — the ladder ran out
+  and they never came in;
+- every Kommo lead in pipeline `13228919` tagged `Bot blocked` that is not already in Lost.
+
+Both are put through `handleBlocked`, paced a quarter-second apart, and the count is logged as
+`[blocked] sweep finished | N leads moved to Lost`. A module-level guard keeps it to one run per
+process, and `handleBlocked` being idempotent makes a repeat harmless anyway.
 
 ## Dashboard
 

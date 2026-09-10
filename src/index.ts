@@ -8,7 +8,8 @@ import { handleStageChange } from './handlers/stage';
 import { handleContactUpdate } from './handlers/contact';
 import { resendJoin } from './handlers/admin';
 import { dashboardAuth, serveDashboard, dashboardData, PUBLIC_DIR } from './handlers/dashboard';
-import { assertEnv } from './env';
+import { sweepBlocked } from './blocked';
+import { assertEnv, errText } from './env';
 import { listPending } from './pending';
 import { startReminders } from './reminders';
 
@@ -137,4 +138,5 @@ const host = process.env.HOST ?? '0.0.0.0';
 app.listen(port, host, () => {
   console.log(`[server] listening on http://${host}:${port}`);
   startReminders();
+  sweepBlocked().catch(err => console.error('[blocked] sweep failed:', errText(err)));
 });

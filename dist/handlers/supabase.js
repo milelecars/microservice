@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MAX_STAGE = void 0;
 exports.nowIso = nowIso;
 exports.getLead = getLead;
 exports.queryLeads = queryLeads;
@@ -26,6 +27,12 @@ function restHeaders() {
 function restUrl(path) {
     return `${(0, env_1.requireEnv)('SUPABASE_URL')}/rest/v1${path}`;
 }
+/**
+ * The value `reminder_stage` stops at: the reminder ladder only picks up rows
+ * below it, so writing it is how a row is taken out of the ladder for good.
+ * One rung per step below it — see STAGE_DELAYS_MS in ../reminders.
+ */
+exports.MAX_STAGE = 4;
 function nowIso() {
     return new Date().toISOString();
 }

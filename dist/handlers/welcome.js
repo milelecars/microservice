@@ -46,8 +46,14 @@ async function welcomeUser(telegramUserId, known) {
         console.log('[welcome] TG', telegramUserId, '| already welcomed - membership refreshed');
         return;
     }
-    const sent = await (0, telegram_api_1.sendMessage)(telegramUserId, telegram_api_1.WELCOME_TEXT);
-    if (sent)
+    const result = await (0, telegram_api_1.sendMessageResult)(telegramUserId, telegram_api_1.WELCOME_TEXT);
+    // handleBlocked has just closed this row off and moved the lead to Lost.
+    // Writing in_channel / joined_at now would only contradict it.
+    if (result.blocked) {
+        console.log('[welcome] TG', telegramUserId, 'has blocked the bot - left as Lost');
+        return;
+    }
+    if (result.ok)
         changes.welcome_sent = true;
     await (0, supabase_1.updateLead)(telegramUserId, changes);
     await markLeadJoined(row);

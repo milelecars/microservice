@@ -46,9 +46,16 @@ export interface LeadRecord {
   join_message_sent_at?:     string | null; // last join/retry message, for throttling
   welcome_sent?:             boolean; // welcome sent once, after the join was confirmed
   last_activity_at?:         string | null; // last message or tap from the person
-  reminder_stage?:           number; // how many reminders have gone out (0-4)
+  reminder_stage?:           number; // how many reminders have gone out (0-MAX_STAGE)
   reminder_sent_at?:         string | null;
 }
+
+/**
+ * The value `reminder_stage` stops at: the reminder ladder only picks up rows
+ * below it, so writing it is how a row is taken out of the ladder for good.
+ * One rung per step below it — see STAGE_DELAYS_MS in ../reminders.
+ */
+export const MAX_STAGE = 4;
 
 export function nowIso(): string {
   return new Date().toISOString();

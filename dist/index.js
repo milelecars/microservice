@@ -13,6 +13,7 @@ const stage_1 = require("./handlers/stage");
 const contact_1 = require("./handlers/contact");
 const admin_1 = require("./handlers/admin");
 const dashboard_1 = require("./handlers/dashboard");
+const blocked_1 = require("./blocked");
 const env_1 = require("./env");
 const pending_1 = require("./pending");
 const reminders_1 = require("./reminders");
@@ -117,4 +118,5 @@ const host = process.env.HOST ?? '0.0.0.0';
 app.listen(port, host, () => {
     console.log(`[server] listening on http://${host}:${port}`);
     (0, reminders_1.startReminders)();
+    (0, blocked_1.sweepBlocked)().catch(err => console.error('[blocked] sweep failed:', (0, env_1.errText)(err)));
 });
