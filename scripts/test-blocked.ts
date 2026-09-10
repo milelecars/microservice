@@ -35,7 +35,13 @@ interface Call {
 
 let calls: Call[] = [];
 let supabaseRows: unknown[] = [];
+/** Set to answer Supabase reads per query instead of always returning the same row. */
+let supabaseGet: ((url: string) => unknown[]) | null = null;
 let existingTags: { id: number; name: string }[] = [];
+/** Leads the pipeline listing hands back during a sweep. */
+let pipelineLeads: unknown[] = [];
+/** status_id a single-lead read reports. */
+let leadStatus = 102006151;
 /** Telegram sendMessage outcome for the next run. */
 let telegramStatus = 200;
 
@@ -57,8 +63,12 @@ function telegramError(status: number, description: string) {
 
 axios.get = ((url: string) => {
   calls.push({ method: 'GET', url });
-  if (url.includes('supabase.co')) return ok(supabaseRows);
-  if (url.includes('/leads/')) return ok({ id: 77, _embedded: { tags: existingTags } });
+  if (url.includes('supabase.co')) return ok(supabaseGet ? supabaseGet(url) : supabaseRows);
+  if (url.includes('/leads?')) return ok({ _embedded: { leads: pipelineLeads } });
+  if (url.includes('/leads/')) {
+    const id = Number(url.split('/leads/')[1].split('?')[0]);
+    return ok({ id, status_id: leadStatus, _embedded: { tags: existingTags } });
+  }
   return ok({});
 }) as unknown as typeof axios.get;
 
@@ -78,7 +88,7 @@ axios.post = ((url: string, body: unknown) => {
 }) as unknown as typeof axios.post;
 
 // The stub above is installed before any of these run a request.
-import { handleBlocked } from '../src/blocked';
+import { handleBlocked, sweepBlocked } from '../src/blocked';
 import { sendMessage } from '../src/telegram-api';
 import { MAX_STAGE, LeadRecord } from '../src/handlers/supabase';
 import { STAGE, CONTACT_FIELD } from '../src/kommo';
@@ -185,6 +195,46 @@ async function main(): Promise<void> {
   check('no Supabase write', find('PATCH', 'supabase.co').length === 0, calls);
   check('no lead write', find('PATCH', '/leads/').length === 0, calls);
   check('no contact write', find('PATCH', '/contacts/').length === 0, calls);
+
+  console.log('the sweep separates blocked leads from leads that ran out of reminders');
+  existingTags = [{ id: 7, name: 'Bot blocked' }];
+  leadStatus = 102006151; // In Conversation
+  pipelineLeads = [
+    { id: 55, status_id: 102006151, _embedded: { tags: [{ id: 7, name: 'Bot blocked' }] } },
+    { id: 66, status_id: 102006151, _embedded: { tags: [{ id: 8, name: 'Reminder 4 sent' }] } },
+  ];
+  supabaseGet = (url: string) => {
+    // Lead 55 has no row of its own; the ladder query answers with lead 66's.
+    if (url.includes('kommo_lead_id=eq.')) return [];
+    if (url.includes('reminder_stage=gte.')) {
+      return [row({ kommo_lead_id: '66', kommo_contact_id: '99', telegram_user_id: 9002, reminder_stage: MAX_STAGE })];
+    }
+    return [];
+  };
+
+  await run(() => sweepBlocked());
+
+  const blockedLead = bodyOf(find('PATCH', '/leads/55')[0]);
+  check('the tagged lead is moved to Lost', blockedLead.status_id === STAGE.LOST, blockedLead);
+
+  const exhaustedLead = bodyOf(find('PATCH', '/leads/66')[0]);
+  check('the lead out of reminders is moved to Lost', exhaustedLead.status_id === STAGE.LOST, exhaustedLead);
+  check('and is NOT tagged Bot blocked', exhaustedLead.tags_to_add === undefined, exhaustedLead);
+  check('and keeps every tag it has', exhaustedLead.tags_to_delete === undefined, exhaustedLead);
+  check('and its contact is not marked blocked', find('PATCH', '/contacts/99').length === 0, calls);
+  check('and no talk is closed for it', find('POST', '/talks/').length === 0, calls);
+  check(
+    'its row records lost_at',
+    typeof bodyOf(find('PATCH', 'supabase.co')[0]).lost_at === 'string',
+    calls
+  );
+
+  console.log('the sweep runs once per deploy');
+  await run(() => sweepBlocked());
+  check('a second call does nothing', calls.length === 0, calls);
+  check('and says so', logged.some(l => l.includes('sweep already ran')), logged);
+
+  supabaseGet = null;
 
   if (failures > 0) {
     console.error('\n' + failures + ' blocked check(s) failed.');

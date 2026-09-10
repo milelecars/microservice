@@ -140,9 +140,84 @@ async function blockedLeadsNotLost(): Promise<KommoLead[]> {
 let swept = false;
 
 /**
- * One-time catch-up at boot, for everyone the bot gave up on before this
- * existed: rows that ran the reminder ladder out without joining, and leads
- * already tagged blocked that never reached Lost. Runs once per deploy.
+ * The reminder ladder ran out and they never came in. That is a lost lead, not
+ * a blocked one, so only the funnel stage moves: no `Bot blocked` tag, no
+ * contact field, no talk closed. `Bot blocked` is earned by a real 403 and
+ * nothing else.
+ */
+async function markLeadLostQuietly(leadId: string | number): Promise<boolean> {
+  try {
+    const lead = await kommoGet<KommoLead>(`/leads/${leadId}`);
+    if (lead?.status_id === STAGE.LOST) return false;
+
+    await kommoPatch(`/leads/${leadId}`, { status_id: STAGE.LOST, loss_reason_id: null });
+    console.log('[blocked] lead', leadId, '-> Lost | out of reminders');
+    return true;
+  } catch (err) {
+    console.error('[blocked] lead', leadId, 'could not be moved to Lost:', errText(err));
+    return false;
+  }
+}
+
+/** Leads already tagged blocked that never reached Lost — the full treatment. */
+async function sweepTaggedBlocked(): Promise<number> {
+  let closed = 0;
+
+  const leads = await blockedLeadsNotLost();
+  console.log('[blocked] sweep | Kommo leads tagged', BLOCKED_TAG, 'and not Lost:', leads.length);
+
+  for (const lead of leads) {
+    const row = await getLeadByKommoLeadId(lead.id);
+
+    if (row?.telegram_user_id) {
+      if (await handleBlocked(row.telegram_user_id, { force: true })) closed++;
+    } else {
+      const contacts = lead._embedded?.contacts ?? [];
+      const mainContact = contacts.find(c => c.is_main) ?? contacts[0];
+      await markLeadLost(lead.id, mainContact?.id);
+      closed++;
+    }
+
+    await sleep(SWEEP_GAP_MS);
+  }
+
+  return closed;
+}
+
+/**
+ * Rows that took every rung of the ladder and still never joined. The stage
+ * moves to Lost and `lost_at` records it — nothing else, because nothing here
+ * says the bot was blocked. Anyone who really was blocked has already been
+ * through sweepTaggedBlocked() above, which stamps `lost_at`, so they are out
+ * of this query by the time it runs.
+ */
+async function sweepLadderExhausted(): Promise<number> {
+  let closed = 0;
+
+  const rows = await queryLeads(
+    `reminder_stage=gte.${MAX_STAGE}&joined_at=is.null&lost_at=is.null&limit=1000`
+  );
+  console.log('[blocked] sweep | Supabase rows out of reminders and not joined:', rows.length);
+
+  for (const row of rows) {
+    if (row.kommo_lead_id) await markLeadLostQuietly(row.kommo_lead_id);
+    if (row.telegram_user_id) await updateLead(row.telegram_user_id, { lost_at: nowIso() });
+    closed++;
+    await sleep(SWEEP_GAP_MS);
+  }
+
+  return closed;
+}
+
+/**
+ * One-time catch-up at boot, in two passes that must stay apart:
+ *
+ * 1. leads already tagged `Bot blocked` that never reached Lost — blocked, so
+ *    they get the whole handleBlocked treatment;
+ * 2. rows that ran the reminder ladder out without joining — lost, so the
+ *    funnel stage moves and nothing else.
+ *
+ * Runs once per deploy.
  */
 export async function sweepBlocked(): Promise<number> {
   if (swept) {
@@ -151,45 +226,23 @@ export async function sweepBlocked(): Promise<number> {
   }
   swept = true;
 
-  let closed = 0;
+  let blocked = 0;
+  let exhausted = 0;
 
   try {
-    const rows = await queryLeads(
-      `reminder_stage=gte.${MAX_STAGE}&joined_at=is.null&lost_at=is.null&limit=1000`
-    );
-    console.log('[blocked] sweep | Supabase rows out of reminders and not joined:', rows.length);
-
-    for (const row of rows) {
-      if (!row.telegram_user_id) continue;
-      if (await handleBlocked(row.telegram_user_id)) closed++;
-      await sleep(SWEEP_GAP_MS);
-    }
+    blocked = await sweepTaggedBlocked();
   } catch (err) {
-    console.error('[blocked] sweep (Supabase side) failed:', errText(err));
+    console.error('[blocked] sweep (tagged blocked) failed:', errText(err));
   }
 
   try {
-    const leads = await blockedLeadsNotLost();
-    console.log('[blocked] sweep | Kommo leads tagged', BLOCKED_TAG, 'and not Lost:', leads.length);
-
-    for (const lead of leads) {
-      const row = await getLeadByKommoLeadId(lead.id);
-
-      if (row?.telegram_user_id) {
-        if (await handleBlocked(row.telegram_user_id, { force: true })) closed++;
-      } else {
-        const contacts = lead._embedded?.contacts ?? [];
-        const mainContact = contacts.find(c => c.is_main) ?? contacts[0];
-        await markLeadLost(lead.id, mainContact?.id);
-        closed++;
-      }
-
-      await sleep(SWEEP_GAP_MS);
-    }
+    exhausted = await sweepLadderExhausted();
   } catch (err) {
-    console.error('[blocked] sweep (Kommo side) failed:', errText(err));
+    console.error('[blocked] sweep (out of reminders) failed:', errText(err));
   }
 
-  console.log('[blocked] sweep finished |', closed, 'leads moved to Lost');
-  return closed;
+  console.log(
+    '[blocked] sweep finished |', blocked, 'blocked ->', exhausted, 'out of reminders -> Lost'
+  );
+  return blocked + exhausted;
 }

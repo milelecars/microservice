@@ -254,20 +254,26 @@ reminder, welcome or anything added later:
 - Logs `[blocked] TG <id> -> Lost`.
 
 It is idempotent: a row that already has `lost_at` is skipped. Only 403 counts — a 429 or a network
-error is a failed send, not a block, and the person stays in the ladder.
+error is a failed send, not a block, and the person stays in the ladder. Nothing else in the service
+writes the `Bot blocked` tag; running the reminder ladder out does not earn it.
 
 ### Startup sweep
 
-Once per deploy, right after the server starts listening, `sweepBlocked()` catches up on everyone the
-bot gave up on before this existed:
+Once per deploy, right after the server starts listening, `sweepBlocked()` catches up on the backlog
+in two passes that deliberately do different things:
 
-- every Supabase row with `reminder_stage` ≥ 4, no `joined_at` and no `lost_at` — the ladder ran out
-  and they never came in;
-- every Kommo lead in pipeline `13228919` tagged `Bot blocked` that is not already in Lost.
+1. **Already tagged `Bot blocked`, not yet in Lost** — every lead in pipeline `13228919` carrying the
+   tag. These are known blocks, so they go through the whole of `handleBlocked` above.
+2. **Out of reminders** — every Supabase row with `reminder_stage` ≥ 4, no `joined_at` and no
+   `lost_at`. The ladder ran out and they never came in, which makes them lost, **not** blocked: the
+   lead moves to Lost and `lost_at` is stamped, and that is all. No `Bot blocked` tag, no contact
+   field, no talk closed, and no tag is removed. Ignoring four nudges is not the same as blocking the
+   bot, and only a real 403 is allowed to say otherwise.
 
-Both are put through `handleBlocked`, paced a quarter-second apart, and the count is logged as
-`[blocked] sweep finished | N leads moved to Lost`. A module-level guard keeps it to one run per
-process, and `handleBlocked` being idempotent makes a repeat harmless anyway.
+Pass 1 runs first and stamps `lost_at`, which takes its leads out of pass 2's query, so a genuine
+block never falls through to the quieter treatment. Writes are paced a quarter-second apart and the
+result is logged as `[blocked] sweep finished | N blocked -> M out of reminders -> Lost`. A
+module-level guard keeps it to one run per process.
 
 ## Dashboard
 
