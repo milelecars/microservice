@@ -1,5 +1,6 @@
 import { errText } from './env';
-import { NO_RESPONSE_TAG, STAGE, addLeadTags, closeTalk, patch as kommoPatch } from './kommo';
+import { addLeadTags } from './kommo';
+import { markNoResponse } from './no-response';
 import { sendJoinMessage } from './telegram-api';
 import { queryLeads, updateLead, nowIso, LeadRecord, MAX_STAGE } from './handlers/supabase';
 
@@ -154,36 +155,6 @@ export function isSilent(row: LeadRecord, now: number = Date.now()): boolean {
   return now - since >= LOST_AFTER_MS;
 }
 
-/**
- * Write the lead off: Lost, tagged `No response`, `lost_at` stamped and the
- * talk closed. Nothing is sent to the person.
- *
- * `loss_reason_id` is deliberately absent — Kommo checks it against the stage
- * the lead is in *now* and rejects the whole PATCH if it is present, even as
- * null. And `lost_at` is only stamped once Kommo has actually taken the move,
- * so a failed PATCH is simply retried on the next tick instead of leaving the
- * row saying Lost while the pipeline says otherwise.
- */
-async function markNoResponse(row: LeadRecord): Promise<void> {
-  const telegramUserId = row.telegram_user_id;
-  if (!telegramUserId) return;
-
-  if (row.kommo_lead_id) {
-    try {
-      await kommoPatch(`/leads/${row.kommo_lead_id}`, { status_id: STAGE.LOST });
-    } catch (err) {
-      console.error('[no-response] lead', row.kommo_lead_id, 'could not be moved to Lost:', errText(err));
-      return;
-    }
-    await addLeadTags(row.kommo_lead_id, [NO_RESPONSE_TAG]);
-  }
-
-  await updateLead(telegramUserId, { lost_at: nowIso() });
-  if (row.kommo_talk_id) await closeTalk(row.kommo_talk_id, telegramUserId);
-
-  console.log('[no-response] TG', telegramUserId, '-> Lost | silent since', new Date(lastSignal(row)).toISOString());
-}
-
 /** One pass over everyone the ladder ran out on who then went quiet. */
 export async function runNoResponseOnce(): Promise<number> {
   const rows = await queryLeads(
@@ -194,8 +165,8 @@ export async function runNoResponseOnce(): Promise<number> {
   let lost = 0;
   for (const row of rows) {
     if (!row.telegram_user_id || !isSilent(row)) continue;
-    await markNoResponse(row);
-    lost++;
+    const since = new Date(lastSignal(row)).toISOString();
+    if (await markNoResponse(row, `silent since ${since}`)) lost++;
   }
   return lost;
 }

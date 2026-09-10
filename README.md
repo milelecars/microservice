@@ -156,12 +156,15 @@ never on the name.
 
 **Tags** — `Link sent` goes on at greeting time, with the card; `Joined Channel`
 is set when the `chat_member` join arrives. The reminder loop adds `Reminder 1 sent` … `Reminder 4 sent` as each nudge goes
-out, `No response` when the ladder has run out and three days of silence follow (taken off again the
-moment they come back), and `Resumed after reminder` the first time a nudged person comes back.
-`Bot blocked` goes on
-whenever Telegram answers 403 to any send — see [Blocked by the user](#blocked-by-the-user), the one
-place that also removes a tag (`Link sent`, which is moot once we are blocked). Everything else is
-appended, never removed.
+out, `No response` when the ladder has run out and three days of silence follow, and
+`Resumed after reminder` the first time a nudged person comes back. `Bot blocked` goes on whenever
+Telegram answers 403 to any send — see [Blocked by the user](#blocked-by-the-user), which also takes
+`Link sent` off, moot once we are blocked.
+
+Two of those come off again. `No response` and `Bot blocked` both say the bot gave up on someone, so
+both are removed the moment that person comes back — see
+[No response, and back again](#no-response-and-back-again). Every other tag is appended and never
+removed.
 
 ## Supabase `leads` columns
 
@@ -240,10 +243,17 @@ once Kommo has taken the move, so a refused PATCH is retried on the next tick ra
 Supabase and the pipeline disagreeing. Logged as `[no-response] TG <id> -> Lost`.
 
 It is not final. Anything at all from that person undoes it: an ordinary message, a `/start`, the
-**Continue** tap, or the channel join itself. `lost_at` is cleared, the `No response` tag comes off
-and the lead goes back to `102006151` In Conversation — or `111366003` Joined Channel when what
-brought them back was the join. The lead's stage is read first, so one already sitting where it
-belongs is not patched again. Logged as `[revive] TG <id> -> back from Lost`.
+**Continue** tap, or the channel join itself. `lost_at` is cleared, **both** giving-up tags come off
+the lead — `No response` and `Bot blocked` — contact field `1003176` goes back to `link sent`, and
+the lead returns to `102006151` In Conversation. If the join is what brought them back, that is
+`joined` and `111366003` Joined Channel instead. The lead's stage is read first, so one already
+sitting where it belongs is not patched again. Logged as `[revive] TG <id> -> back from Lost`.
+
+`Bot blocked` comes off because writing to the bot means the block is gone: the tag is stale the
+moment revive runs. If they somehow are still unreachable, the next send answers 403 and puts it
+straight back. That is also why the channel-join path revives *before* sending the welcome — so a
+403 on that welcome lands on a clean row and marks them again, rather than being undone by a revive
+that ran after it.
 
 Someone who comes back and then goes quiet again for three days is written off again, tag and all.
 
@@ -287,11 +297,11 @@ in two passes that deliberately do different things:
 
 1. **Already tagged `Bot blocked`, not yet in Lost** — every lead in pipeline `13228919` carrying the
    tag. These are known blocks, so they go through the whole of `handleBlocked` above.
-2. **Out of reminders** — every Supabase row with `reminder_stage` ≥ 4 and no `joined_at`. The
-   ladder ran out and they never came in, which makes them lost, **not** blocked: the
-   lead moves to Lost and `lost_at` is stamped, and that is all. No `Bot blocked` tag, no contact
-   field, no talk closed, and no tag is removed. Ignoring four nudges is not the same as blocking the
-   bot, and only a real 403 is allowed to say otherwise.
+2. **Out of reminders** — every Supabase row with `reminder_stage` ≥ 4 and no `joined_at`, put
+   through the very same `markNoResponse` the reminder loop uses. So they land as `No response`, and
+   a lead caught up on at boot is indistinguishable from one written off tomorrow. Never
+   `Bot blocked`: ignoring four nudges is not the same as blocking the bot, and only a real 403 is
+   allowed to say otherwise.
 
 Pass 1 runs first, so a genuine block is in Lost before pass 2 looks, and pass 2 reads each lead and
 passes over the ones already there. Neither pass trusts `lost_at` to decide — a row can carry it from

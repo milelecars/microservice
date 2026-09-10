@@ -9,7 +9,7 @@ const env_1 = require("../env");
 const kommo_1 = require("../kommo");
 const pending_1 = require("../pending");
 const reminders_1 = require("../reminders");
-const revive_1 = require("../revive");
+const no_response_1 = require("../no-response");
 const telegram_api_1 = require("../telegram-api");
 const join_1 = require("./join");
 const supabase_1 = require("./supabase");
@@ -62,7 +62,7 @@ async function handleContinueTap(query) {
         return;
     }
     await (0, reminders_1.tagResumedAfterReminder)(row);
-    await (0, revive_1.reviveLead)(telegramUserId, row);
+    await (0, no_response_1.reviveLead)(telegramUserId, row);
     await (0, telegram_api_1.sendJoinMessage)(telegramUserId);
     console.log('[resume] TG', telegramUserId, '-> join card resent');
 }
@@ -86,11 +86,12 @@ async function handleChatMember(update) {
         return;
     }
     if (IN_CHANNEL_STATUSES.includes(status)) {
+        // Before the welcome, not after: the welcome is a send, and a send that
+        // answers 403 marks them blocked all over again. Undoing the write-off
+        // first means that lands on a clean row instead of being contradicted.
+        await (0, no_response_1.reviveLead)(telegramUserId, existing, { joined: true });
         // Telegram saw the join first hand — same routine as the button
         await (0, welcome_1.welcomeUser)(telegramUserId, existing);
-        // After the welcome: it has usually just moved the lead to Joined Channel,
-        // and the read inside reviveLead then leaves the stage alone.
-        await (0, revive_1.reviveLead)(telegramUserId, existing, { joined: true });
         console.log('[telegram] chat_member', status, '| TG user:', telegramUserId);
         return;
     }
@@ -144,7 +145,7 @@ async function handleTelegramWebhook(req, res) {
             const existing = await (0, supabase_1.getLead)(telegramUserId);
             // Anything at all from someone written off as Lost brings them back,
             // whether it is `/start` or an ordinary message.
-            await (0, revive_1.reviveLead)(telegramUserId, existing);
+            await (0, no_response_1.reviveLead)(telegramUserId, existing);
             if (isStartCommand && existing) {
                 await (0, reminders_1.tagResumedAfterReminder)(existing);
                 // Tell Kommo where this person stands before the forwarded message

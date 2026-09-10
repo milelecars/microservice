@@ -45,6 +45,12 @@ export const CONTACT_FIELD = {
  */
 export const NO_RESPONSE_TAG = 'No response';
 
+/**
+ * On a lead Telegram has answered 403 for. Both of these say the bot gave up on
+ * the person, and both come off again the moment they come back.
+ */
+export const BLOCKED_TAG = 'Bot blocked';
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface KommoFieldValue {

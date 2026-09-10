@@ -4,7 +4,7 @@ import { requireEnv, errText } from '../env';
 import { closeTalk, contactStatusFor, setContactStatus } from '../kommo';
 import { pushPending } from '../pending';
 import { tagResumedAfterReminder } from '../reminders';
-import { reviveLead } from '../revive';
+import { reviveLead } from '../no-response';
 import { answerCallbackQuery, sendJoinMessage } from '../telegram-api';
 import { markLinkSent } from './join';
 import { getLead, updateLead, upsertLead, nowIso } from './supabase';
@@ -139,11 +139,12 @@ async function handleChatMember(update: TgChatMemberUpdated): Promise<void> {
   }
 
   if (IN_CHANNEL_STATUSES.includes(status)) {
+    // Before the welcome, not after: the welcome is a send, and a send that
+    // answers 403 marks them blocked all over again. Undoing the write-off
+    // first means that lands on a clean row instead of being contradicted.
+    await reviveLead(telegramUserId, existing, { joined: true });
     // Telegram saw the join first hand — same routine as the button
     await welcomeUser(telegramUserId, existing);
-    // After the welcome: it has usually just moved the lead to Joined Channel,
-    // and the read inside reviveLead then leaves the stage alone.
-    await reviveLead(telegramUserId, existing, { joined: true });
     console.log('[telegram] chat_member', status, '| TG user:', telegramUserId);
     return;
   }

@@ -12,6 +12,7 @@ exports.runRemindersOnce = runRemindersOnce;
 exports.startReminders = startReminders;
 const env_1 = require("./env");
 const kommo_1 = require("./kommo");
+const no_response_1 = require("./no-response");
 const telegram_api_1 = require("./telegram-api");
 const supabase_1 = require("./handlers/supabase");
 Object.defineProperty(exports, "MAX_STAGE", { enumerable: true, get: function () { return supabase_1.MAX_STAGE; } });
@@ -147,35 +148,6 @@ function isSilent(row, now = Date.now()) {
         return false;
     return now - since >= LOST_AFTER_MS;
 }
-/**
- * Write the lead off: Lost, tagged `No response`, `lost_at` stamped and the
- * talk closed. Nothing is sent to the person.
- *
- * `loss_reason_id` is deliberately absent — Kommo checks it against the stage
- * the lead is in *now* and rejects the whole PATCH if it is present, even as
- * null. And `lost_at` is only stamped once Kommo has actually taken the move,
- * so a failed PATCH is simply retried on the next tick instead of leaving the
- * row saying Lost while the pipeline says otherwise.
- */
-async function markNoResponse(row) {
-    const telegramUserId = row.telegram_user_id;
-    if (!telegramUserId)
-        return;
-    if (row.kommo_lead_id) {
-        try {
-            await (0, kommo_1.patch)(`/leads/${row.kommo_lead_id}`, { status_id: kommo_1.STAGE.LOST });
-        }
-        catch (err) {
-            console.error('[no-response] lead', row.kommo_lead_id, 'could not be moved to Lost:', (0, env_1.errText)(err));
-            return;
-        }
-        await (0, kommo_1.addLeadTags)(row.kommo_lead_id, [kommo_1.NO_RESPONSE_TAG]);
-    }
-    await (0, supabase_1.updateLead)(telegramUserId, { lost_at: (0, supabase_1.nowIso)() });
-    if (row.kommo_talk_id)
-        await (0, kommo_1.closeTalk)(row.kommo_talk_id, telegramUserId);
-    console.log('[no-response] TG', telegramUserId, '-> Lost | silent since', new Date(lastSignal(row)).toISOString());
-}
 /** One pass over everyone the ladder ran out on who then went quiet. */
 async function runNoResponseOnce() {
     const rows = await (0, supabase_1.queryLeads)('link_sent_at=not.is.null&joined_at=is.null&lost_at=is.null' +
@@ -184,8 +156,9 @@ async function runNoResponseOnce() {
     for (const row of rows) {
         if (!row.telegram_user_id || !isSilent(row))
             continue;
-        await markNoResponse(row);
-        lost++;
+        const since = new Date(lastSignal(row)).toISOString();
+        if (await (0, no_response_1.markNoResponse)(row, `silent since ${since}`))
+            lost++;
     }
     return lost;
 }

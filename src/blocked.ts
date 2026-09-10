@@ -1,5 +1,6 @@
 import { errText } from './env';
 import {
+  BLOCKED_TAG,
   PIPELINE_ID,
   STAGE,
   KommoLead,
@@ -19,9 +20,7 @@ import {
   LeadRecord,
   MAX_STAGE,
 } from './handlers/supabase';
-
-/** Marks a lead the bot can no longer reach. Also what the dashboard reads. */
-export const BLOCKED_TAG = 'Bot blocked';
+import { markNoResponse } from './no-response';
 
 /** Dropped when the lead goes to Lost — the link is moot once we are blocked. */
 const LINK_SENT_TAG = 'Link sent';
@@ -142,26 +141,6 @@ async function blockedLeadsNotLost(): Promise<KommoLead[]> {
 
 let swept = false;
 
-/**
- * The reminder ladder ran out and they never came in. That is a lost lead, not
- * a blocked one, so only the funnel stage moves: no `Bot blocked` tag, no
- * contact field, no talk closed. `Bot blocked` is earned by a real 403 and
- * nothing else.
- */
-async function markLeadLostQuietly(leadId: string | number): Promise<boolean> {
-  try {
-    const lead = await kommoGet<KommoLead>(`/leads/${leadId}`);
-    if (lead?.status_id === STAGE.LOST) return false;
-
-    await kommoPatch(`/leads/${leadId}`, { status_id: STAGE.LOST });
-    console.log('[blocked] lead', leadId, '-> Lost | out of reminders');
-    return true;
-  } catch (err) {
-    console.error('[blocked] lead', leadId, 'could not be moved to Lost:', errText(err));
-    return false;
-  }
-}
-
 /** Leads already tagged blocked that never reached Lost — the full treatment. */
 async function sweepTaggedBlocked(): Promise<number> {
   let closed = 0;
@@ -188,11 +167,12 @@ async function sweepTaggedBlocked(): Promise<number> {
 }
 
 /**
- * Rows that took every rung of the ladder and still never joined. The stage
- * moves to Lost and `lost_at` records it — nothing else, because nothing here
- * says the bot was blocked. Anyone who really was blocked went through
- * sweepTaggedBlocked() first and is already in Lost, so the read inside
- * markLeadLostQuietly passes over them.
+ * Rows that took every rung of the ladder and still never joined. Exactly what
+ * the reminder loop does to them from now on — the same markNoResponse — so a
+ * lead caught up on at boot and one written off tomorrow are indistinguishable
+ * in Kommo. Nothing here says the bot was blocked, so `Bot blocked` is not
+ * involved; anyone who really was blocked went through sweepTaggedBlocked()
+ * first and is already in Lost, which markNoResponse passes over.
  */
 async function sweepLadderExhausted(): Promise<number> {
   let closed = 0;
@@ -204,15 +184,10 @@ async function sweepLadderExhausted(): Promise<number> {
 
   for (const row of rows) {
     // `lost_at` is not the test: a row can carry it from a run whose Kommo move
-    // failed. markLeadLostQuietly reads the lead and skips the ones already
-    // there, so a stalled move is picked up on the next deploy.
-    const moved = row.kommo_lead_id ? await markLeadLostQuietly(row.kommo_lead_id) : false;
-
-    const stamp = !row.lost_at && !!row.telegram_user_id;
-    if (stamp) await updateLead(row.telegram_user_id!, { lost_at: nowIso() });
-
-    if (moved) closed++;
-    if (moved || stamp) await sleep(SWEEP_GAP_MS);
+    // failed. markNoResponse reads the lead and passes over the ones already in
+    // Lost, so a stalled move is picked up on the next deploy.
+    if (await markNoResponse(row, 'out of reminders')) closed++;
+    await sleep(SWEEP_GAP_MS);
   }
 
   return closed;
@@ -223,9 +198,9 @@ async function sweepLadderExhausted(): Promise<number> {
  *
  * 1. leads already tagged `Bot blocked` that never reached Lost — blocked, so
  *    they get the whole handleBlocked treatment;
- * 2. rows that ran the reminder ladder out without joining — lost, so the
- *    funnel stage moves and nothing else. Leads already in Lost are skipped by
- *    reading the lead, not by trusting `lost_at`.
+ * 2. rows that ran the reminder ladder out without joining — `No response`,
+ *    the same as the reminder loop gives them. Leads already in Lost are
+ *    skipped by reading the lead, not by trusting `lost_at`.
  *
  * Runs once per deploy.
  */

@@ -250,10 +250,15 @@ async function main(): Promise<void> {
 
   const exhaustedLead = bodyOf(find('PATCH', '/leads/66')[0]);
   check('the lead out of reminders is moved to Lost', exhaustedLead.status_id === STAGE.LOST, exhaustedLead);
-  check('and is NOT tagged Bot blocked', exhaustedLead.tags_to_add === undefined, exhaustedLead);
+  check(
+    'and is tagged No response, exactly as the reminder loop would',
+    JSON.stringify(exhaustedLead.tags_to_add) === JSON.stringify([{ name: 'No response' }]),
+    exhaustedLead
+  );
+  check('and NOT tagged Bot blocked', !JSON.stringify(exhaustedLead).includes('Bot blocked'), exhaustedLead);
   check('and keeps every tag it has', exhaustedLead.tags_to_delete === undefined, exhaustedLead);
   check('and its contact is not marked blocked', find('PATCH', '/contacts/99').length === 0, calls);
-  check('and no talk is closed for it', find('POST', '/talks/').length === 0, calls);
+  check('and its talk is closed, as the loop closes it', find('POST', '/talks/99/close').length === 1, calls);
   check(
     'its row records lost_at',
     typeof bodyOf(find('PATCH', 'supabase.co')[0]).lost_at === 'string',

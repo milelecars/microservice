@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.NO_RESPONSE_TAG = exports.CONTACT_FIELD = exports.LEAD_FIELD = exports.STAGE = exports.PIPELINE_ID = exports.KOMMO_BASE = void 0;
+exports.BLOCKED_TAG = exports.NO_RESPONSE_TAG = exports.CONTACT_FIELD = exports.LEAD_FIELD = exports.STAGE = exports.PIPELINE_ID = exports.KOMMO_BASE = void 0;
 exports.get = get;
 exports.patch = patch;
 exports.post = post;
@@ -57,6 +57,11 @@ exports.CONTACT_FIELD = {
  * by the reminder loop, taken off again the moment the person comes back.
  */
 exports.NO_RESPONSE_TAG = 'No response';
+/**
+ * On a lead Telegram has answered 403 for. Both of these say the bot gave up on
+ * the person, and both come off again the moment they come back.
+ */
+exports.BLOCKED_TAG = 'Bot blocked';
 // ── HTTP ──────────────────────────────────────────────────────────────────────
 function authHeaders() {
     return { Authorization: `Bearer ${(0, env_1.requireEnv)('KOMMO_TOKEN')}` };

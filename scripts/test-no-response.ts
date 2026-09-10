@@ -77,7 +77,7 @@ axios.post = ((url: string, body: unknown) => {
 
 // The stub above is installed before any of these run a request.
 import { runNoResponseOnce } from '../src/reminders';
-import { reviveLead } from '../src/revive';
+import { reviveLead } from '../src/no-response';
 import { MAX_STAGE, LeadRecord } from '../src/handlers/supabase';
 import { STAGE } from '../src/kommo';
 
@@ -120,9 +120,7 @@ const find = (method: string, fragment: string) =>
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const bodyOf = (call: Call | undefined): Record<string, any> => (call?.body ?? {}) as Record<string, any>;
 
-/** The lead PATCH that carries a status move, ignoring the tag-only ones. */
-const statusPatch = () => find('PATCH', '/leads/77').map(bodyOf).find(b => b.status_id !== undefined) ?? {};
-const tagPatch = () => find('PATCH', '/leads/77').map(bodyOf).find(b => b.tags_to_add !== undefined) ?? {};
+const leadPatch = () => bodyOf(find('PATCH', '/leads/77')[0]);
 
 // ── Cases ─────────────────────────────────────────────────────────────────────
 
@@ -134,11 +132,11 @@ async function main(): Promise<void> {
 
   await run(() => runNoResponseOnce());
 
-  check('lead moved to Lost', statusPatch().status_id === STAGE.LOST, calls);
-  check('no loss_reason sent', statusPatch().loss_reason_id === undefined, calls);
+  check('lead moved to Lost', leadPatch().status_id === STAGE.LOST, calls);
+  check('no loss_reason sent', leadPatch().loss_reason_id === undefined, calls);
   check(
     'tagged No response',
-    JSON.stringify(tagPatch().tags_to_add) === JSON.stringify([{ name: 'No response' }]),
+    JSON.stringify(leadPatch().tags_to_add) === JSON.stringify([{ name: 'No response' }]),
     calls
   );
   check('no tag removed', find('PATCH', '/leads/77').every(c => bodyOf(c).tags_to_delete === undefined), calls);
@@ -171,26 +169,52 @@ async function main(): Promise<void> {
 
   await run(() => runNoResponseOnce());
 
-  check('the move was attempted', find('PATCH', '/leads/77').length === 1, calls);
+  // The tag rides in the same PATCH as the move, so a refused PATCH applies
+  // neither. What matters is that nothing downstream of it ran.
+  check('the move was attempted once', find('PATCH', '/leads/77').length === 1, calls);
+  check('and not retried in the same pass', find('PATCH', '/leads/').length === 1, calls);
   check('but lost_at is not stamped', find('PATCH', 'supabase.co').length === 0, calls);
-  check('and no tag went on', find('PATCH', '/leads/77').every(c => bodyOf(c).tags_to_add === undefined), calls);
+  check('nothing else was written', find('PATCH', '/contacts/').length === 0, calls);
   check('and the talk is left open', find('POST', '/talks/').length === 0, calls);
   leadPatchFails = false;
+
+  console.log('a lead already in Lost keeps its tags but the row still records it');
+  leadStatus = STAGE.LOST;
+  existingTags = [{ id: 3, name: 'Reminder 4 sent' }];
+  supabaseRows = [row()];
+
+  await run(() => runNoResponseOnce());
+
+  check('the lead is not patched', find('PATCH', '/leads/77').length === 0, calls);
+  check('no talk closed', find('POST', '/talks/').length === 0, calls);
+  check('but lost_at is stamped', typeof bodyOf(find('PATCH', 'supabase.co')[0]).lost_at === 'string', calls);
+  check('and it says why', logged.some(l => l.includes('already there')), logged);
+  leadStatus = 102006151;
 
   // ── Back again ──────────────────────────────────────────────────────────────
 
   console.log('a message from someone written off brings them back');
-  existingTags = [{ id: 4, name: 'No response' }];
+  existingTags = [
+    { id: 4, name: 'No response' },
+    { id: 5, name: 'Bot blocked' },
+    { id: 6, name: 'Link sent' },
+  ];
   leadStatus = STAGE.LOST;
   const lost = row({ lost_at: daysAgo(1) });
 
   await run(() => reviveLead(9001, lost));
 
   check('lost_at cleared', bodyOf(find('PATCH', 'supabase.co')[0]).lost_at === null, calls);
-  check('back to In Conversation', bodyOf(find('PATCH', '/leads/77')[0]).status_id === STAGE.IN_CONVERSATION, calls);
+  check('back to In Conversation', leadPatch().status_id === STAGE.IN_CONVERSATION, calls);
   check(
-    'No response tag removed',
-    JSON.stringify(bodyOf(find('PATCH', '/leads/77')[0]).tags_to_delete) === JSON.stringify([4]),
+    'both giving-up tags removed',
+    JSON.stringify(leadPatch().tags_to_delete) === JSON.stringify([4, 5]),
+    calls
+  );
+  check('Link sent is left alone', !JSON.stringify(leadPatch().tags_to_delete ?? []).includes('6'), calls);
+  check(
+    'contact set back to link sent',
+    bodyOf(find('PATCH', '/contacts/88')[0]).custom_fields_values?.[0]?.values?.[0]?.value === 'link sent',
     calls
   );
   check('logged the return', logged.some(l => l.includes('[revive] TG 9001 -> back from Lost')), logged);
@@ -199,15 +223,20 @@ async function main(): Promise<void> {
   console.log('coming back by joining the channel goes straight to Joined Channel');
   await run(() => reviveLead(9001, lost, { joined: true }));
 
-  check('back to Joined Channel', bodyOf(find('PATCH', '/leads/77')[0]).status_id === STAGE.JOINED_CHANNEL, calls);
+  check('back to Joined Channel', leadPatch().status_id === STAGE.JOINED_CHANNEL, calls);
+  check(
+    'contact set to joined',
+    bodyOf(find('PATCH', '/contacts/88')[0]).custom_fields_values?.[0]?.values?.[0]?.value === 'joined',
+    calls
+  );
   check('and says so', logged.some(l => l.includes('Joined Channel')), logged);
 
   console.log('a lead already where it belongs is not moved again');
   leadStatus = STAGE.IN_CONVERSATION;
   await run(() => reviveLead(9001, lost));
 
-  check('no status in the patch', bodyOf(find('PATCH', '/leads/77')[0]).status_id === undefined, calls);
-  check('but the tag still comes off', JSON.stringify(bodyOf(find('PATCH', '/leads/77')[0]).tags_to_delete) === JSON.stringify([4]), calls);
+  check('no status in the patch', leadPatch().status_id === undefined, calls);
+  check('but the tags still come off', JSON.stringify(leadPatch().tags_to_delete) === JSON.stringify([4, 5]), calls);
 
   console.log('a row that was never lost is left alone');
   await run(() => reviveLead(9001, row()));

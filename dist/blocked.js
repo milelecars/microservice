@@ -1,13 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BLOCKED_TAG = void 0;
 exports.handleBlocked = handleBlocked;
 exports.sweepBlocked = sweepBlocked;
 const env_1 = require("./env");
 const kommo_1 = require("./kommo");
 const supabase_1 = require("./handlers/supabase");
-/** Marks a lead the bot can no longer reach. Also what the dashboard reads. */
-exports.BLOCKED_TAG = 'Bot blocked';
+const no_response_1 = require("./no-response");
 /** Dropped when the lead goes to Lost — the link is moot once we are blocked. */
 const LINK_SENT_TAG = 'Link sent';
 /** Leads per page when sweeping the pipeline, and how many pages at most. */
@@ -30,13 +28,13 @@ async function markLeadLost(leadId, contactId) {
         const lead = await (0, kommo_1.get)(`/leads/${leadId}?with=tags`);
         const tags = lead?._embedded?.tags ?? [];
         const body = { status_id: kommo_1.STAGE.LOST };
-        if (!(0, kommo_1.hasTag)(tags, exports.BLOCKED_TAG))
-            body.tags_to_add = [{ name: exports.BLOCKED_TAG }];
+        if (!(0, kommo_1.hasTag)(tags, kommo_1.BLOCKED_TAG))
+            body.tags_to_add = [{ name: kommo_1.BLOCKED_TAG }];
         const linkSent = tags.filter(t => t.name?.toLowerCase() === LINK_SENT_TAG.toLowerCase());
         if (linkSent.length > 0)
             body.tags_to_delete = linkSent.map(t => t.id);
         await (0, kommo_1.patch)(`/leads/${leadId}`, body);
-        console.log('[blocked] lead', leadId, '-> Lost | tagged', exports.BLOCKED_TAG);
+        console.log('[blocked] lead', leadId, '-> Lost | tagged', kommo_1.BLOCKED_TAG);
     }
     catch (err) {
         console.error('[blocked] lead', leadId, 'could not be moved to Lost:', (0, env_1.errText)(err));
@@ -90,7 +88,7 @@ async function blockedLeadsNotLost() {
         for (const lead of leads) {
             if (lead.status_id === kommo_1.STAGE.LOST)
                 continue;
-            if ((0, kommo_1.hasTag)(lead._embedded?.tags, exports.BLOCKED_TAG))
+            if ((0, kommo_1.hasTag)(lead._embedded?.tags, kommo_1.BLOCKED_TAG))
                 found.push(lead);
         }
         if (leads.length < SWEEP_PAGE_SIZE)
@@ -99,31 +97,11 @@ async function blockedLeadsNotLost() {
     return found;
 }
 let swept = false;
-/**
- * The reminder ladder ran out and they never came in. That is a lost lead, not
- * a blocked one, so only the funnel stage moves: no `Bot blocked` tag, no
- * contact field, no talk closed. `Bot blocked` is earned by a real 403 and
- * nothing else.
- */
-async function markLeadLostQuietly(leadId) {
-    try {
-        const lead = await (0, kommo_1.get)(`/leads/${leadId}`);
-        if (lead?.status_id === kommo_1.STAGE.LOST)
-            return false;
-        await (0, kommo_1.patch)(`/leads/${leadId}`, { status_id: kommo_1.STAGE.LOST });
-        console.log('[blocked] lead', leadId, '-> Lost | out of reminders');
-        return true;
-    }
-    catch (err) {
-        console.error('[blocked] lead', leadId, 'could not be moved to Lost:', (0, env_1.errText)(err));
-        return false;
-    }
-}
 /** Leads already tagged blocked that never reached Lost — the full treatment. */
 async function sweepTaggedBlocked() {
     let closed = 0;
     const leads = await blockedLeadsNotLost();
-    console.log('[blocked] sweep | Kommo leads tagged', exports.BLOCKED_TAG, 'and not Lost:', leads.length);
+    console.log('[blocked] sweep | Kommo leads tagged', kommo_1.BLOCKED_TAG, 'and not Lost:', leads.length);
     for (const lead of leads) {
         const row = await (0, supabase_1.getLeadByKommoLeadId)(lead.id);
         if (row?.telegram_user_id) {
@@ -141,11 +119,12 @@ async function sweepTaggedBlocked() {
     return closed;
 }
 /**
- * Rows that took every rung of the ladder and still never joined. The stage
- * moves to Lost and `lost_at` records it — nothing else, because nothing here
- * says the bot was blocked. Anyone who really was blocked went through
- * sweepTaggedBlocked() first and is already in Lost, so the read inside
- * markLeadLostQuietly passes over them.
+ * Rows that took every rung of the ladder and still never joined. Exactly what
+ * the reminder loop does to them from now on — the same markNoResponse — so a
+ * lead caught up on at boot and one written off tomorrow are indistinguishable
+ * in Kommo. Nothing here says the bot was blocked, so `Bot blocked` is not
+ * involved; anyone who really was blocked went through sweepTaggedBlocked()
+ * first and is already in Lost, which markNoResponse passes over.
  */
 async function sweepLadderExhausted() {
     let closed = 0;
@@ -153,16 +132,11 @@ async function sweepLadderExhausted() {
     console.log('[blocked] sweep | Supabase rows out of reminders and not joined:', rows.length);
     for (const row of rows) {
         // `lost_at` is not the test: a row can carry it from a run whose Kommo move
-        // failed. markLeadLostQuietly reads the lead and skips the ones already
-        // there, so a stalled move is picked up on the next deploy.
-        const moved = row.kommo_lead_id ? await markLeadLostQuietly(row.kommo_lead_id) : false;
-        const stamp = !row.lost_at && !!row.telegram_user_id;
-        if (stamp)
-            await (0, supabase_1.updateLead)(row.telegram_user_id, { lost_at: (0, supabase_1.nowIso)() });
-        if (moved)
+        // failed. markNoResponse reads the lead and passes over the ones already in
+        // Lost, so a stalled move is picked up on the next deploy.
+        if (await (0, no_response_1.markNoResponse)(row, 'out of reminders'))
             closed++;
-        if (moved || stamp)
-            await sleep(SWEEP_GAP_MS);
+        await sleep(SWEEP_GAP_MS);
     }
     return closed;
 }
@@ -171,9 +145,9 @@ async function sweepLadderExhausted() {
  *
  * 1. leads already tagged `Bot blocked` that never reached Lost — blocked, so
  *    they get the whole handleBlocked treatment;
- * 2. rows that ran the reminder ladder out without joining — lost, so the
- *    funnel stage moves and nothing else. Leads already in Lost are skipped by
- *    reading the lead, not by trusting `lost_at`.
+ * 2. rows that ran the reminder ladder out without joining — `No response`,
+ *    the same as the reminder loop gives them. Leads already in Lost are
+ *    skipped by reading the lead, not by trusting `lost_at`.
  *
  * Runs once per deploy.
  */
