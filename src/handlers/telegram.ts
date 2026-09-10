@@ -4,6 +4,7 @@ import { requireEnv, errText } from '../env';
 import { closeTalk, contactStatusFor, setContactStatus } from '../kommo';
 import { pushPending } from '../pending';
 import { tagResumedAfterReminder } from '../reminders';
+import { reviveLead } from '../revive';
 import { answerCallbackQuery, sendJoinMessage } from '../telegram-api';
 import { markLinkSent } from './join';
 import { getLead, updateLead, upsertLead, nowIso } from './supabase';
@@ -106,6 +107,7 @@ async function handleContinueTap(query: TgCallbackQuery): Promise<void> {
   }
 
   await tagResumedAfterReminder(row);
+  await reviveLead(telegramUserId, row);
   await sendJoinMessage(telegramUserId);
 
   console.log('[resume] TG', telegramUserId, '-> join card resent');
@@ -139,6 +141,9 @@ async function handleChatMember(update: TgChatMemberUpdated): Promise<void> {
   if (IN_CHANNEL_STATUSES.includes(status)) {
     // Telegram saw the join first hand — same routine as the button
     await welcomeUser(telegramUserId, existing);
+    // After the welcome: it has usually just moved the lead to Joined Channel,
+    // and the read inside reviveLead then leaves the stage alone.
+    await reviveLead(telegramUserId, existing, { joined: true });
     console.log('[telegram] chat_member', status, '| TG user:', telegramUserId);
     return;
   }
@@ -207,6 +212,10 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       // again. First-time users have no row and no talk, and ordinary messages
       // must never close anything.
       const existing = await getLead(telegramUserId);
+
+      // Anything at all from someone written off as Lost brings them back,
+      // whether it is `/start` or an ordinary message.
+      await reviveLead(telegramUserId, existing);
 
       if (isStartCommand && existing) {
         await tagResumedAfterReminder(existing);

@@ -156,7 +156,9 @@ never on the name.
 
 **Tags** — `Link sent` goes on at greeting time, with the card; `Joined Channel`
 is set when the `chat_member` join arrives. The reminder loop adds `Reminder 1 sent` … `Reminder 4 sent` as each nudge goes
-out, and `Resumed after reminder` the first time a nudged person comes back. `Bot blocked` goes on
+out, `No response` when the ladder has run out and three days of silence follow (taken off again the
+moment they come back), and `Resumed after reminder` the first time a nudged person comes back.
+`Bot blocked` goes on
 whenever Telegram answers 403 to any send — see [Blocked by the user](#blocked-by-the-user), the one
 place that also removes a tag (`Link sent`, which is moot once we are blocked). Everything else is
 appended, never removed.
@@ -183,7 +185,7 @@ Keyed by `telegram_user_id`.
 | `link_sent_at` | telegram, on the `/start` that sends the join card (once) |
 | `joined_at` | stage / channel / `chat_member`, first join only |
 | `left_at` | `chat_member`, on leave or kick |
-| `lost_at` | stage, on Lost — and `handleBlocked`, on a 403 from Telegram |
+| `lost_at` | stage, on Lost; `handleBlocked` on a 403; the reminder loop after three days of silence — cleared again the moment the person comes back |
 | `in_channel` | stage, channel, `chat_member` |
 | `join_check_failures` | `/verify/channel`, incremented on every failed check |
 | `join_message_sent` | telegram — a record that the greeting card has gone out; never suppresses a send |
@@ -225,6 +227,25 @@ out of the ladder for good.
 
 Nudges sent before this change carry a **Continue ▶️** button; tapping it sends the join card
 again, so those messages keep working. Nothing new carries that button.
+
+### No response, and back again
+
+The same loop makes one more pass. A row that has taken all four nudges, is still outside the
+channel and has been silent for **three days** since the last one is written off: the lead moves to
+`102006171` Lost, picks up the `No response` tag, `lost_at` is stamped and the talk is closed.
+Nothing is sent, so quiet hours do not apply. The clock is the one the ladder already uses — the
+later of `last_activity_at` and `reminder_sent_at` — so a single reply puts it back to zero. As in
+the blocked path, `loss_reason_id` is left out of the PATCH entirely, and `lost_at` is stamped only
+once Kommo has taken the move, so a refused PATCH is retried on the next tick rather than leaving
+Supabase and the pipeline disagreeing. Logged as `[no-response] TG <id> -> Lost`.
+
+It is not final. Anything at all from that person undoes it: an ordinary message, a `/start`, the
+**Continue** tap, or the channel join itself. `lost_at` is cleared, the `No response` tag comes off
+and the lead goes back to `102006151` In Conversation — or `111366003` Joined Channel when what
+brought them back was the join. The lead's stage is read first, so one already sitting where it
+belongs is not patched again. Logged as `[revive] TG <id> -> back from Lost`.
+
+Someone who comes back and then goes quiet again for three days is written off again, tag and all.
 
 ### One-time catch-up
 

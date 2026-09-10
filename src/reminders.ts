@@ -1,5 +1,5 @@
 import { errText } from './env';
-import { addLeadTags } from './kommo';
+import { NO_RESPONSE_TAG, STAGE, addLeadTags, closeTalk, patch as kommoPatch } from './kommo';
 import { sendJoinMessage } from './telegram-api';
 import { queryLeads, updateLead, nowIso, LeadRecord, MAX_STAGE } from './handlers/supabase';
 
@@ -49,6 +49,13 @@ export async function tagResumedAfterReminder(row: LeadRecord): Promise<void> {
   if ((row.reminder_stage ?? 0) === 0) return;
   await tagLead(row, RESUMED_TAG);
 }
+
+/**
+ * Silence this long after the ladder ran out and the lead is written off. The
+ * clock is the same one the ladder runs on — the later of their last move and
+ * our last nudge — so anything at all from them puts it back to zero.
+ */
+const LOST_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 
 /** No messages before this hour or after it, local to the person. */
 const QUIET_UNTIL_HOUR = 8;
@@ -133,6 +140,66 @@ export function isDue(row: LeadRecord, now: number = Date.now()): boolean {
   return now - since >= STAGE_DELAYS_MS[stage];
 }
 
+/**
+ * Out of reminders, still outside the channel, and silent for three days since
+ * the last nudge. Quiet hours do not apply — nothing is sent.
+ */
+export function isSilent(row: LeadRecord, now: number = Date.now()): boolean {
+  if ((row.reminder_stage ?? 0) < MAX_STAGE) return false;
+  if (row.joined_at || row.lost_at) return false;
+
+  const since = lastSignal(row);
+  if (Number.isNaN(since)) return false;
+
+  return now - since >= LOST_AFTER_MS;
+}
+
+/**
+ * Write the lead off: Lost, tagged `No response`, `lost_at` stamped and the
+ * talk closed. Nothing is sent to the person.
+ *
+ * `loss_reason_id` is deliberately absent — Kommo checks it against the stage
+ * the lead is in *now* and rejects the whole PATCH if it is present, even as
+ * null. And `lost_at` is only stamped once Kommo has actually taken the move,
+ * so a failed PATCH is simply retried on the next tick instead of leaving the
+ * row saying Lost while the pipeline says otherwise.
+ */
+async function markNoResponse(row: LeadRecord): Promise<void> {
+  const telegramUserId = row.telegram_user_id;
+  if (!telegramUserId) return;
+
+  if (row.kommo_lead_id) {
+    try {
+      await kommoPatch(`/leads/${row.kommo_lead_id}`, { status_id: STAGE.LOST });
+    } catch (err) {
+      console.error('[no-response] lead', row.kommo_lead_id, 'could not be moved to Lost:', errText(err));
+      return;
+    }
+    await addLeadTags(row.kommo_lead_id, [NO_RESPONSE_TAG]);
+  }
+
+  await updateLead(telegramUserId, { lost_at: nowIso() });
+  if (row.kommo_talk_id) await closeTalk(row.kommo_talk_id, telegramUserId);
+
+  console.log('[no-response] TG', telegramUserId, '-> Lost | silent since', new Date(lastSignal(row)).toISOString());
+}
+
+/** One pass over everyone the ladder ran out on who then went quiet. */
+export async function runNoResponseOnce(): Promise<number> {
+  const rows = await queryLeads(
+    'link_sent_at=not.is.null&joined_at=is.null&lost_at=is.null' +
+    `&reminder_stage=gte.${MAX_STAGE}&limit=500`
+  );
+
+  let lost = 0;
+  for (const row of rows) {
+    if (!row.telegram_user_id || !isSilent(row)) continue;
+    await markNoResponse(row);
+    lost++;
+  }
+  return lost;
+}
+
 async function sendStage(row: LeadRecord): Promise<void> {
   const telegramUserId = row.telegram_user_id;
   if (!telegramUserId) return;
@@ -189,6 +256,7 @@ export function startReminders(): NodeJS.Timeout {
     running = true;
     try {
       await runRemindersOnce();
+      await runNoResponseOnce();
     } catch (err) {
       console.error('[reminder] run failed:', errText(err));
     } finally {

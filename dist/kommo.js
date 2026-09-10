@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CONTACT_FIELD = exports.LEAD_FIELD = exports.STAGE = exports.PIPELINE_ID = exports.KOMMO_BASE = void 0;
+exports.NO_RESPONSE_TAG = exports.CONTACT_FIELD = exports.LEAD_FIELD = exports.STAGE = exports.PIPELINE_ID = exports.KOMMO_BASE = void 0;
 exports.get = get;
 exports.patch = patch;
 exports.post = post;
@@ -52,6 +52,11 @@ exports.CONTACT_FIELD = {
     AGE: 1383508, //                             (legacy, no longer written)
     INTEREST: 1383510, //                             (legacy, no longer written)
 };
+/**
+ * On a lead the reminder ladder ran out on and that then stayed silent. Added
+ * by the reminder loop, taken off again the moment the person comes back.
+ */
+exports.NO_RESPONSE_TAG = 'No response';
 // ── HTTP ──────────────────────────────────────────────────────────────────────
 function authHeaders() {
     return { Authorization: `Bearer ${(0, env_1.requireEnv)('KOMMO_TOKEN')}` };

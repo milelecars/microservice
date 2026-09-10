@@ -39,6 +39,12 @@ export const CONTACT_FIELD = {
   INTEREST: 1383510, //                             (legacy, no longer written)
 } as const;
 
+/**
+ * On a lead the reminder ladder ran out on and that then stayed silent. Added
+ * by the reminder loop, taken off again the moment the person comes back.
+ */
+export const NO_RESPONSE_TAG = 'No response';
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface KommoFieldValue {
