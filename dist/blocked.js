@@ -18,14 +18,18 @@ const SWEEP_GAP_MS = 250;
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 /**
  * Move a Kommo lead to Lost: the stage, the tag that says why, and the
- * `Link sent` tag off. `loss_reason_id: null` leaves the reason empty — being
- * blocked is not one of the pipeline's reasons.
+ * `Link sent` tag off.
+ *
+ * The loss reason is left empty by not sending one. It cannot be sent here even
+ * as null: Kommo checks `loss_reason_id` against the stage the lead is in *now*,
+ * so anything in that field rejects the whole PATCH with "Loss reason can be
+ * specified only for lost lead" and the move never happens.
  */
 async function markLeadLost(leadId, contactId) {
     try {
         const lead = await (0, kommo_1.get)(`/leads/${leadId}?with=tags`);
         const tags = lead?._embedded?.tags ?? [];
-        const body = { status_id: kommo_1.STAGE.LOST, loss_reason_id: null };
+        const body = { status_id: kommo_1.STAGE.LOST };
         if (!(0, kommo_1.hasTag)(tags, exports.BLOCKED_TAG))
             body.tags_to_add = [{ name: exports.BLOCKED_TAG }];
         const linkSent = tags.filter(t => t.name?.toLowerCase() === LINK_SENT_TAG.toLowerCase());
@@ -106,7 +110,7 @@ async function markLeadLostQuietly(leadId) {
         const lead = await (0, kommo_1.get)(`/leads/${leadId}`);
         if (lead?.status_id === kommo_1.STAGE.LOST)
             return false;
-        await (0, kommo_1.patch)(`/leads/${leadId}`, { status_id: kommo_1.STAGE.LOST, loss_reason_id: null });
+        await (0, kommo_1.patch)(`/leads/${leadId}`, { status_id: kommo_1.STAGE.LOST });
         console.log('[blocked] lead', leadId, '-> Lost | out of reminders');
         return true;
     }
@@ -139,21 +143,26 @@ async function sweepTaggedBlocked() {
 /**
  * Rows that took every rung of the ladder and still never joined. The stage
  * moves to Lost and `lost_at` records it — nothing else, because nothing here
- * says the bot was blocked. Anyone who really was blocked has already been
- * through sweepTaggedBlocked() above, which stamps `lost_at`, so they are out
- * of this query by the time it runs.
+ * says the bot was blocked. Anyone who really was blocked went through
+ * sweepTaggedBlocked() first and is already in Lost, so the read inside
+ * markLeadLostQuietly passes over them.
  */
 async function sweepLadderExhausted() {
     let closed = 0;
-    const rows = await (0, supabase_1.queryLeads)(`reminder_stage=gte.${supabase_1.MAX_STAGE}&joined_at=is.null&lost_at=is.null&limit=1000`);
+    const rows = await (0, supabase_1.queryLeads)(`reminder_stage=gte.${supabase_1.MAX_STAGE}&joined_at=is.null&limit=1000`);
     console.log('[blocked] sweep | Supabase rows out of reminders and not joined:', rows.length);
     for (const row of rows) {
-        if (row.kommo_lead_id)
-            await markLeadLostQuietly(row.kommo_lead_id);
-        if (row.telegram_user_id)
+        // `lost_at` is not the test: a row can carry it from a run whose Kommo move
+        // failed. markLeadLostQuietly reads the lead and skips the ones already
+        // there, so a stalled move is picked up on the next deploy.
+        const moved = row.kommo_lead_id ? await markLeadLostQuietly(row.kommo_lead_id) : false;
+        const stamp = !row.lost_at && !!row.telegram_user_id;
+        if (stamp)
             await (0, supabase_1.updateLead)(row.telegram_user_id, { lost_at: (0, supabase_1.nowIso)() });
-        closed++;
-        await sleep(SWEEP_GAP_MS);
+        if (moved)
+            closed++;
+        if (moved || stamp)
+            await sleep(SWEEP_GAP_MS);
     }
     return closed;
 }
@@ -163,7 +172,8 @@ async function sweepLadderExhausted() {
  * 1. leads already tagged `Bot blocked` that never reached Lost — blocked, so
  *    they get the whole handleBlocked treatment;
  * 2. rows that ran the reminder ladder out without joining — lost, so the
- *    funnel stage moves and nothing else.
+ *    funnel stage moves and nothing else. Leads already in Lost are skipped by
+ *    reading the lead, not by trusting `lost_at`.
  *
  * Runs once per deploy.
  */

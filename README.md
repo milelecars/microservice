@@ -247,8 +247,10 @@ reminder, welcome or anything added later:
 
 - **Supabase** — `lost_at` = now, `in_channel` = false, `reminder_stage` = 4, so no reminder ever goes
   out again.
-- **Kommo lead** — moved to `102006171` Lost with the loss reason left empty, tagged `Bot blocked`,
-  and the `Link sent` tag removed.
+- **Kommo lead** — moved to `102006171` Lost, tagged `Bot blocked`, and the `Link sent` tag removed.
+  The loss reason is left empty by not sending one: Kommo checks `loss_reason_id` against the stage
+  the lead is in *now*, so putting anything in that field — `null` included — fails the whole PATCH
+  with *"Loss reason can be specified only for lost lead"* and the move never happens.
 - **Kommo contact** — field `1003176` set to `blocked`.
 - **Kommo talk** — closed with `force_close`.
 - Logs `[blocked] TG <id> -> Lost`.
@@ -264,14 +266,16 @@ in two passes that deliberately do different things:
 
 1. **Already tagged `Bot blocked`, not yet in Lost** — every lead in pipeline `13228919` carrying the
    tag. These are known blocks, so they go through the whole of `handleBlocked` above.
-2. **Out of reminders** — every Supabase row with `reminder_stage` ≥ 4, no `joined_at` and no
-   `lost_at`. The ladder ran out and they never came in, which makes them lost, **not** blocked: the
+2. **Out of reminders** — every Supabase row with `reminder_stage` ≥ 4 and no `joined_at`. The
+   ladder ran out and they never came in, which makes them lost, **not** blocked: the
    lead moves to Lost and `lost_at` is stamped, and that is all. No `Bot blocked` tag, no contact
    field, no talk closed, and no tag is removed. Ignoring four nudges is not the same as blocking the
    bot, and only a real 403 is allowed to say otherwise.
 
-Pass 1 runs first and stamps `lost_at`, which takes its leads out of pass 2's query, so a genuine
-block never falls through to the quieter treatment. Writes are paced a quarter-second apart and the
+Pass 1 runs first, so a genuine block is in Lost before pass 2 looks, and pass 2 reads each lead and
+passes over the ones already there. Neither pass trusts `lost_at` to decide — a row can carry it from
+a run whose Kommo write failed, and a stalled move needs picking up on the next deploy, not skipping
+forever. Writes are paced a quarter-second apart and the
 result is logged as `[blocked] sweep finished | N blocked -> M out of reminders -> Lost`. A
 module-level guard keeps it to one run per process.
 

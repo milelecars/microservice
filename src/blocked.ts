@@ -37,8 +37,12 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 
 /**
  * Move a Kommo lead to Lost: the stage, the tag that says why, and the
- * `Link sent` tag off. `loss_reason_id: null` leaves the reason empty — being
- * blocked is not one of the pipeline's reasons.
+ * `Link sent` tag off.
+ *
+ * The loss reason is left empty by not sending one. It cannot be sent here even
+ * as null: Kommo checks `loss_reason_id` against the stage the lead is in *now*,
+ * so anything in that field rejects the whole PATCH with "Loss reason can be
+ * specified only for lost lead" and the move never happens.
  */
 async function markLeadLost(leadId: string | number, contactId?: string | number): Promise<void> {
   try {
@@ -47,10 +51,9 @@ async function markLeadLost(leadId: string | number, contactId?: string | number
 
     const body: {
       status_id: number;
-      loss_reason_id: null;
       tags_to_add?: { name: string }[];
       tags_to_delete?: number[];
-    } = { status_id: STAGE.LOST, loss_reason_id: null };
+    } = { status_id: STAGE.LOST };
 
     if (!hasTag(tags, BLOCKED_TAG)) body.tags_to_add = [{ name: BLOCKED_TAG }];
 
@@ -150,7 +153,7 @@ async function markLeadLostQuietly(leadId: string | number): Promise<boolean> {
     const lead = await kommoGet<KommoLead>(`/leads/${leadId}`);
     if (lead?.status_id === STAGE.LOST) return false;
 
-    await kommoPatch(`/leads/${leadId}`, { status_id: STAGE.LOST, loss_reason_id: null });
+    await kommoPatch(`/leads/${leadId}`, { status_id: STAGE.LOST });
     console.log('[blocked] lead', leadId, '-> Lost | out of reminders');
     return true;
   } catch (err) {
@@ -187,23 +190,29 @@ async function sweepTaggedBlocked(): Promise<number> {
 /**
  * Rows that took every rung of the ladder and still never joined. The stage
  * moves to Lost and `lost_at` records it — nothing else, because nothing here
- * says the bot was blocked. Anyone who really was blocked has already been
- * through sweepTaggedBlocked() above, which stamps `lost_at`, so they are out
- * of this query by the time it runs.
+ * says the bot was blocked. Anyone who really was blocked went through
+ * sweepTaggedBlocked() first and is already in Lost, so the read inside
+ * markLeadLostQuietly passes over them.
  */
 async function sweepLadderExhausted(): Promise<number> {
   let closed = 0;
 
   const rows = await queryLeads(
-    `reminder_stage=gte.${MAX_STAGE}&joined_at=is.null&lost_at=is.null&limit=1000`
+    `reminder_stage=gte.${MAX_STAGE}&joined_at=is.null&limit=1000`
   );
   console.log('[blocked] sweep | Supabase rows out of reminders and not joined:', rows.length);
 
   for (const row of rows) {
-    if (row.kommo_lead_id) await markLeadLostQuietly(row.kommo_lead_id);
-    if (row.telegram_user_id) await updateLead(row.telegram_user_id, { lost_at: nowIso() });
-    closed++;
-    await sleep(SWEEP_GAP_MS);
+    // `lost_at` is not the test: a row can carry it from a run whose Kommo move
+    // failed. markLeadLostQuietly reads the lead and skips the ones already
+    // there, so a stalled move is picked up on the next deploy.
+    const moved = row.kommo_lead_id ? await markLeadLostQuietly(row.kommo_lead_id) : false;
+
+    const stamp = !row.lost_at && !!row.telegram_user_id;
+    if (stamp) await updateLead(row.telegram_user_id!, { lost_at: nowIso() });
+
+    if (moved) closed++;
+    if (moved || stamp) await sleep(SWEEP_GAP_MS);
   }
 
   return closed;
@@ -215,7 +224,8 @@ async function sweepLadderExhausted(): Promise<number> {
  * 1. leads already tagged `Bot blocked` that never reached Lost — blocked, so
  *    they get the whole handleBlocked treatment;
  * 2. rows that ran the reminder ladder out without joining — lost, so the
- *    funnel stage moves and nothing else.
+ *    funnel stage moves and nothing else. Leads already in Lost are skipped by
+ *    reading the lead, not by trusting `lost_at`.
  *
  * Runs once per deploy.
  */

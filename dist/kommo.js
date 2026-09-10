@@ -113,9 +113,19 @@ async function setContactStatus(contactId, value) {
     }
 }
 // ── Talks ─────────────────────────────────────────────────────────────────────
+/** Kommo's two ways of saying the talk is not open: gone, or already closed. */
+function alreadyClosed(err) {
+    if (!axios_1.default.isAxiosError(err))
+        return false;
+    const status = err.response?.status;
+    if (status === 404)
+        return true;
+    const detail = String(err.response?.data?.detail ?? '');
+    return status === 422 && /closed/i.test(detail);
+}
 /**
  * Close a Kommo talk so the next Telegram message starts a fresh conversation.
- * A 404 means it is closed already, which is the state we wanted anyway.
+ * A 404, or a 422 saying the talk is closed, is the state we wanted anyway.
  */
 async function closeTalk(talkId, telegramUserId) {
     try {
@@ -124,7 +134,7 @@ async function closeTalk(talkId, telegramUserId) {
         return true;
     }
     catch (err) {
-        if (axios_1.default.isAxiosError(err) && err.response?.status === 404) {
+        if (alreadyClosed(err)) {
             console.log('[talk]', talkId, 'already closed for TG', telegramUserId);
             return true;
         }

@@ -40,10 +40,12 @@ let supabaseGet: ((url: string) => unknown[]) | null = null;
 let existingTags: { id: number; name: string }[] = [];
 /** Leads the pipeline listing hands back during a sweep. */
 let pipelineLeads: unknown[] = [];
-/** status_id a single-lead read reports. */
-let leadStatus = 102006151;
+/** status_id a single-lead read reports, per lead id. */
+let leadStatusOf: (id: number) => number = () => 102006151;
 /** Telegram sendMessage outcome for the next run. */
 let telegramStatus = 200;
+/** Kommo talk-close outcome for the next run. */
+let talkStatus = 200;
 
 const logged: string[] = [];
 const realLog = console.log;
@@ -67,7 +69,7 @@ axios.get = ((url: string) => {
   if (url.includes('/leads?')) return ok({ _embedded: { leads: pipelineLeads } });
   if (url.includes('/leads/')) {
     const id = Number(url.split('/leads/')[1].split('?')[0]);
-    return ok({ id, status_id: leadStatus, _embedded: { tags: existingTags } });
+    return ok({ id, status_id: leadStatusOf(id), _embedded: { tags: existingTags } });
   }
   return ok({});
 }) as unknown as typeof axios.get;
@@ -79,6 +81,14 @@ axios.patch = ((url: string, body: unknown) => {
 
 axios.post = ((url: string, body: unknown) => {
   calls.push({ method: 'POST', url, body });
+  if (url.includes('/close') && talkStatus === 422) {
+    return Promise.reject(
+      Object.assign(new Error('Unprocessable Entity'), {
+        isAxiosError: true,
+        response: { status: 422, data: { title: 'Unprocessable Entity', status: 422, detail: 'Talk is closed' } },
+      })
+    );
+  }
   if (url.includes('api.telegram.org')) {
     if (telegramStatus === 403) return telegramError(403, 'Forbidden: bot was blocked by the user');
     if (telegramStatus === 429) return telegramError(429, 'Too Many Requests: retry after 30');
@@ -144,7 +154,7 @@ async function main(): Promise<void> {
 
   const leadPatch = bodyOf(find('PATCH', '/leads/77')[0]);
   check('lead moved to Lost', leadPatch.status_id === STAGE.LOST, leadPatch);
-  check('loss_reason left empty', leadPatch.loss_reason_id === null, leadPatch);
+  check('no loss_reason sent - Kommo rejects one before the move', leadPatch.loss_reason_id === undefined, leadPatch);
   check(
     'tagged Bot blocked',
     JSON.stringify(leadPatch.tags_to_add) === JSON.stringify([{ name: 'Bot blocked' }]),
@@ -196,9 +206,23 @@ async function main(): Promise<void> {
   check('no lead write', find('PATCH', '/leads/').length === 0, calls);
   check('no contact write', find('PATCH', '/contacts/').length === 0, calls);
 
+  console.log('a talk Kommo says is already closed is not a failure');
+  existingTags = [];
+  supabaseRows = [row()];
+  telegramStatus = 200;
+  talkStatus = 422;
+
+  await run(() => handleBlocked(9001));
+
+  check('the talk close was attempted', find('POST', '/talks/99/close').length === 1, calls);
+  check('no error logged for it', !logged.some(l => l.includes('close failed')), logged);
+  check('and the row is still closed off', logged.some(l => l.includes('[blocked] TG 9001 -> Lost')), logged);
+  talkStatus = 200;
+
   console.log('the sweep separates blocked leads from leads that ran out of reminders');
   existingTags = [{ id: 7, name: 'Bot blocked' }];
-  leadStatus = 102006151; // In Conversation
+  // Lead 44 is already in Lost; everything else is still In Conversation.
+  leadStatusOf = (id: number) => (id === 44 ? STAGE.LOST : 102006151);
   pipelineLeads = [
     { id: 55, status_id: 102006151, _embedded: { tags: [{ id: 7, name: 'Bot blocked' }] } },
     { id: 66, status_id: 102006151, _embedded: { tags: [{ id: 8, name: 'Reminder 4 sent' }] } },
@@ -207,7 +231,12 @@ async function main(): Promise<void> {
     // Lead 55 has no row of its own; the ladder query answers with lead 66's.
     if (url.includes('kommo_lead_id=eq.')) return [];
     if (url.includes('reminder_stage=gte.')) {
-      return [row({ kommo_lead_id: '66', kommo_contact_id: '99', telegram_user_id: 9002, reminder_stage: MAX_STAGE })];
+      check('the ladder query does not filter on lost_at', !url.includes('lost_at'), url);
+      return [
+        row({ kommo_lead_id: '66', kommo_contact_id: '99', telegram_user_id: 9002, reminder_stage: MAX_STAGE }),
+        // Already in Lost from the pass above - the lead read must skip it.
+        row({ kommo_lead_id: '44', telegram_user_id: 9003, reminder_stage: MAX_STAGE, lost_at: '2026-01-01T00:00:00.000Z' }),
+      ];
     }
     return [];
   };
@@ -216,6 +245,8 @@ async function main(): Promise<void> {
 
   const blockedLead = bodyOf(find('PATCH', '/leads/55')[0]);
   check('the tagged lead is moved to Lost', blockedLead.status_id === STAGE.LOST, blockedLead);
+
+  check('a lead already in Lost is not patched again', find('PATCH', '/leads/44').length === 0, calls);
 
   const exhaustedLead = bodyOf(find('PATCH', '/leads/66')[0]);
   check('the lead out of reminders is moved to Lost', exhaustedLead.status_id === STAGE.LOST, exhaustedLead);
